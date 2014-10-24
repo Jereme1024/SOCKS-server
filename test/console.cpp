@@ -12,6 +12,7 @@
 #include <tuple>
 #include <iostream>
 #include <sstream>
+#include <fstream>
 #include <map>
 
 enum pid_dic { CHILD = 0 };
@@ -177,67 +178,7 @@ public:
 		{
 			Parser::parse(cmd_result, cmd_line);
 
-			bool is_executable = verify_cmd(cmd_result);
-
-			int exec_size = verify_cmd_future(cmd_result, exectest);
-			int pipe_size = exec_size - 1;
-
-			pipe_vector.clear();
-
-			int fd[2];
-			for (int i = 0; i < pipe_size; i++)
-			{
-				pipe(fd);
-				pipe_vector.push_back(std::make_tuple(fd[0], fd[1]));
-			}
-
-			int infd, outfd;
-			int j = 0;
-			for (int i = 0; i < cmd_result.size(); i++)
-			{
-				if (exectest[i] == true)
-				{
-					if (j == 0)
-					{
-						infd = 0;
-					}
-					else
-					{
-						infd = std::get<PIPEOUT>(pipe_vector[j - 1]);
-					}
-
-					if (j == (exec_size - 1))
-					{
-						outfd = 1;
-					}
-					else
-					{
-						outfd = std::get<PIPEIN>(pipe_vector[j]);
-					}
-
-					std::cout << "in " << infd << " out " << outfd << "\n";
-					execute_future(std::get<CMD>(cmd_result[i]), infd, outfd);
-
-					j++;
-				}
-				else
-				{
-					std::cerr << " Unknown Command: [" << std::get<CMD>(cmd_result[i])[0] << "]\n";
-				}
-			}
-
-			std::cout << "% ";
-		}
-	}
-
-	void run_future()
-	{
-		std::cout << "% ";
-		while (std::getline(std::cin, cmd_line))
-		{
-			Parser::parse(cmd_result, cmd_line);
-
-			int exec_size = verify_cmd_future(cmd_result, exectest);
+			int exec_size = verify_cmd(cmd_result, exectest);
 
 			for (int i = 0; i < cmd_result.size(); i++)
 			{
@@ -263,7 +204,7 @@ public:
 				if (proc_id != -1)
 				{
 					auto fd = PipeManager::get_fd(proc_id);
-					execute_future(std::get<CMD>(cmd_result[i]), std::get<0>(fd), std::get<1>(fd));
+					execute(std::get<CMD>(cmd_result[i]), std::get<0>(fd), std::get<1>(fd));
 				}
 				else
 				{
@@ -275,21 +216,8 @@ public:
 		}
 	}
 
-	bool verify_cmd(std::vector<std::tuple<std::vector<std::string>, int>> &cmd_result)
-	{
-		for (auto &cmd : cmd_result)
-		{
-			std::cout << "file: " << std::get<CMD>(cmd)[0] << "\n";
-			if (!is_file_exist(std::get<CMD>(cmd)[0]))
-			{
-				return false;
-			}
-		}
 
-		return true;
-	}
-
-	int verify_cmd_future(std::vector<std::tuple<std::vector<std::string>, int>> &cmd_result, std::vector<int> &exectest)
+	int verify_cmd(std::vector<std::tuple<std::vector<std::string>, int>> &cmd_result, std::vector<int> &exectest)
 	{
 		exectest.clear();
 		int count = 0;
@@ -311,18 +239,33 @@ public:
 
 	std::string get_MOTD()
 	{
-		std::string MOTD;
+		std::string filename("motd");
+		
+		char *motd_buffer;
+		std::fstream motd_file(filename);
 
-		MOTD = "Hello Jeremy!\n";
+		if (!motd_file)
+		{
+			std::cerr << "MOTD file open failed!\n";
+			exit(EXIT_FAILURE);
+		}
 
-		MOTD += "****************************************\n";
-		MOTD += "** Welcome to the information server. **\n";
-		MOTD += "****************************************\n";
+		motd_file.seekg(0, motd_file.end);
+		int file_length = motd_file.tellg();
+		motd_file.seekg(0, motd_file.beg);
+		
+		motd_buffer = new char[file_length + 1];
+		motd_file.read(motd_buffer, file_length);
 
-		return MOTD;
+		std::string motd(motd_buffer);
+
+		motd_file.close();
+		delete []motd_buffer;
+
+		return motd;
 	}
 
-	void execute_future(std::vector<std::string> &cmd_result, int infd = -1, int outfd = -1)
+	void execute(std::vector<std::string> &cmd_result, int infd = -1, int outfd = -1)
 	{
 		char **argv = new char *[cmd_result.size() + 1];
 		for (int i = 0; i < cmd_result.size(); i++)
@@ -406,7 +349,7 @@ int main(int argc, char *argv[])
 
 	Console<Parser, PipeManager> console;
 
-	console.run_future();
+	console.run();
 	
 
 	return 0;
