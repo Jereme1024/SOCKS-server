@@ -1,0 +1,9 @@
+removetag test.html |5
+ls | number > ls.txt
+removetag0 test.html |1
+number | number |2 cat ls.txt |1
+UNKNOWN_COMMAND!
+number
+ls |4 ls |3
+ls | number | cat
+exit

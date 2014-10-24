@@ -1,0 +1,158 @@
+****************************************
+** Welcome to the information server. **
+****************************************
+% printenv PATH
+PATH= bin:.
+% setenv PATH bin
+% printenv PATH
+PATH= bin
+% ls
+bin
+test.html
+% ls bin
+cat
+ls
+noop
+number
+removetag
+removetag0
+% cat test.html > test1.txt
+% cat test1.txt
+<!test.html>
+<TITLE>Test<TITLE>
+<BODY>This is a <b>test</b> program
+for ras.
+</BODY>
+% removetag test.html
+
+Test
+This is a test program
+for ras.
+
+% removetag test.html > test2.txt
+% cat test2.txt
+
+Test
+This is a test program
+for ras.
+
+% removetag0 test.html
+Error: illegal tag "!test.html"
+
+Test
+This is a test program
+for ras.
+
+% removetag0 test.html > test2.txt
+Error: illegal tag "!test.html"
+% cat test2.txt
+
+Test
+This is a test program
+for ras.
+
+% removetag test.html | number
+   1 
+   2 Test
+   3 This is a test program
+   4 for ras.
+   5 
+% removetag test.html |1 number > test3.txt
+% cat test3.txt
+   1 
+   2 Test
+   3 This is a test program
+   4 for ras.
+   5 
+% removetag test.html |3 removetag test.html | number |1 number
+   1 
+   2 Test
+   3 This is a test program
+   4 for ras.
+   5 
+   6    1 
+   7    2 Test
+   8    3 This is a test program
+   9    4 for ras.
+  10    5 
+% ls |2 ls | cat
+bin
+test.html
+test1.txt
+test2.txt
+test3.txt
+bin
+test.html
+test1.txt
+test2.txt
+test3.txt
+% ls |2 removetag test.html
+
+Test
+This is a test program
+for ras.
+
+% cat
+bin
+test.html
+test1.txt
+test2.txt
+test3.txt
+% ls |2
+% UNKNOWN_COMMAND
+Unknown command: [UNKNOWN_COMMAND]
+% removetag test.html | cat
+bin
+test.html
+test1.txt
+test2.txt
+test3.txt
+
+Test
+This is a test program
+for ras.
+
+% date
+Unknown command: [date]
+% ls |1
+% ctt
+Unknown command: [ctt]
+% number
+   1 bin
+   2 test.html
+   3 test1.txt
+   4 test2.txt
+   5 test3.txt
+% ls |1 ctt
+Unknown command: [ctt]
+% cat
+bin
+test.html
+test1.txt
+test2.txt
+test3.txt
+% ls |1 ctt | cat
+Unknown command: [ctt]
+% cat | cat
+bin
+test.html
+test1.txt
+test2.txt
+test3.txt
+% ls |3 removetag test.html |2 ls |1 cat
+bin
+test.html
+test1.txt
+test2.txt
+test3.txt
+
+Test
+This is a test program
+for ras.
+
+bin
+test.html
+test1.txt
+test2.txt
+test3.txt
+% exit

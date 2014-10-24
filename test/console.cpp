@@ -237,33 +237,6 @@ public:
 		return count;
 	}
 
-	std::string get_MOTD()
-	{
-		std::string filename("motd");
-		
-		char *motd_buffer;
-		std::fstream motd_file(filename);
-
-		if (!motd_file)
-		{
-			std::cerr << "MOTD file open failed!\n";
-			exit(EXIT_FAILURE);
-		}
-
-		motd_file.seekg(0, motd_file.end);
-		int file_length = motd_file.tellg();
-		motd_file.seekg(0, motd_file.beg);
-		
-		motd_buffer = new char[file_length + 1];
-		motd_file.read(motd_buffer, file_length);
-
-		std::string motd(motd_buffer);
-
-		motd_file.close();
-		delete []motd_buffer;
-
-		return motd;
-	}
 
 	void execute(std::vector<std::string> &cmd_result, int infd = -1, int outfd = -1)
 	{
@@ -322,6 +295,34 @@ public:
 	{
 		filename = "/bin/" + filename;
 		return access(filename.c_str(), F_OK) == 0;
+	}
+
+	std::string get_MOTD()
+	{
+		std::string filename("motd");
+		
+		char *motd_buffer;
+		std::fstream motd_file(filename);
+
+		if (!motd_file)
+		{
+			std::cerr << "MOTD file open failed!\n";
+			exit(EXIT_FAILURE);
+		}
+
+		motd_file.seekg(0, motd_file.end);
+		int file_length = motd_file.tellg();
+		motd_file.seekg(0, motd_file.beg);
+		
+		motd_buffer = new char[file_length + 1];
+		motd_file.read(motd_buffer, file_length);
+
+		std::string motd(motd_buffer);
+
+		motd_file.close();
+		delete []motd_buffer;
+
+		return motd;
 	}
 };
 
