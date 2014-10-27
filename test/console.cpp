@@ -198,6 +198,10 @@ public:
 					}
 
 				}
+				else
+				{
+					break;
+				}
 			}
 
 			int infd, outfd;
@@ -207,13 +211,12 @@ public:
 				if (proc_id != -1)
 				{
 					int pipe_to = std::get<PIPETO>(cmd_result[i]);
-					std::cout << "& " << std::get<CMD>(cmd_result[i])[0] << " " << pipe_to
-						<< "\n";
 					execute(std::get<CMD>(cmd_result[i]), proc_id, pipe_to);
 				}
 				else
 				{
-					std::cerr << " Unknown Command: [" << std::get<CMD>(cmd_result[i])[0] << "]\n";
+					std::cerr << " Unknown command: [" << std::get<CMD>(cmd_result[i])[0] << "]\n";
+					break;
 				}
 			}
 
@@ -226,8 +229,15 @@ public:
 	{
 		exectest.clear();
 		int count = 0;
+		bool is_terminated = false;
 		for (auto &cmd : cmd_result)
 		{
+			if (is_terminated)
+			{
+				exectest.push_back(-1);
+				continue;
+			}
+
 			if (is_file_exist(std::get<CMD>(cmd)[0]))
 			{
 				exectest.push_back(proc_counter++);
@@ -236,6 +246,7 @@ public:
 			else
 			{
 				exectest.push_back(-1);
+				is_terminated = true;
 			}
 		}
 		
@@ -252,7 +263,8 @@ public:
 		}
 		argv[cmd_result.size()] = NULL;
 
-		std::cout << "* " << argv[0] << "\n";
+
+
 
 		pid_t child_pid = fork();
 		if (child_pid < 0)
