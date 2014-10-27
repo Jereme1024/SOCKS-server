@@ -11,8 +11,7 @@
 
 const int MAX_CONNECTION = 5;
 
-template <class Service>
-class Server : public Service
+class Server
 {
 private:
 	int sockfd;
@@ -49,19 +48,25 @@ public:
 
 	}
 
+	int accept_one()
+	{
+		int clientfd;
+
+		if ((clientfd = accept(sockfd, (sockaddr *) &client_addr, &client_len)) < 0)
+		{
+			std::cerr << "Server accept failed.\n";
+			exit(-1);
+		}
+
+		return clientfd;
+	}
+
 	void run()
 	{
 		while (true)
 		{
-			int clientfd;
+			int clientfd = accept_one();
 			
-			clientfd = accept(sockfd, (sockaddr *) &client_addr, &client_len);
-			if (clientfd < 0)
-			{
-				std::cerr << "Server accept failed.\n";
-				exit(-1);
-			}
-
 			int pid = fork();
 			if (pid < 0)
 			{
@@ -73,7 +78,7 @@ public:
 			{
 				close(sockfd);
 
-				Service::service(clientfd, buffer, 1023);
+				//Service::service(clientfd, buffer, 1023);
 			}
 			else
 			{

@@ -16,6 +16,7 @@
 #include <sstream>
 #include <fstream>
 #include <map>
+#include "server.hpp"
 
 enum pid_dic { CHILD = 0 };
 enum cmd_dic { CMD = 0, PIPETO = 1};
@@ -169,10 +170,19 @@ private:
 	std::vector<std::tuple<int, int>> pipe_vector; // DEPRECATED
 	std::vector<int> exectest;
 	int proc_counter;
+	int client_fd;
 
 public:
 	Console() : proc_counter(0)
 	{
+		Server server;
+
+		client_fd = server.accept_one();
+
+		dup2(client_fd, 0);
+		dup2(client_fd, 1);
+		dup2(client_fd, 2);
+
 		std::cout << get_MOTD();
 	}
 
@@ -184,7 +194,8 @@ public:
 		{
 			Parser::parse(cmd_result, cmd_line);
 
-			specify_cmd(cmd_result);
+			bool is_go_ahead = specify_cmd(cmd_result);
+			if (!is_go_ahead) break;
 
 			int exec_size = verify_cmd(cmd_result, exectest);
 
@@ -230,7 +241,7 @@ public:
 	}
 
 
-	void specify_cmd(std::vector<std::tuple<std::vector<std::string>, int>> &cmd_result)
+	bool specify_cmd(std::vector<std::tuple<std::vector<std::string>, int>> &cmd_result)
 	{
 		for (auto it = cmd_result.begin(); it != cmd_result.end(); ++it)
 		{
@@ -245,9 +256,15 @@ public:
 				setenv(cmd[1].c_str(), cmd[2].c_str(), true);
 				cmd_result.erase(it);
 			}
+			else if (cmd[0] == "exit")
+			{
+				return false;
+			}
 
 			if (cmd_result.size() < 1) break;
 		}
+
+		return true;
 	}
 
 
