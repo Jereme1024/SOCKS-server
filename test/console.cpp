@@ -26,9 +26,10 @@ private:
 	enum pip_dic { PIPEIN = 1, PIPEOUT = 0, PIPEIN_USED = 3, PIPEOUT_USED = 2};
 	int default_in;
 	int default_out;
-	std::map<int, std::tuple<int, int, bool, bool>> pipe_lookup;
 
 public:
+	std::map<int, std::tuple<int, int, bool, bool>> pipe_lookup;
+
 	PipeManager() : default_in(STDIN), default_out(STDOUT)
 	{}
 
@@ -42,13 +43,15 @@ public:
 		default_out = fd;
 	}
 
-	std::tuple<int, int> get_fd(int proc_id) // It's implemented to get the IO of the process with proc_id.
+	std::tuple<int, int> get_fd(int proc_id, int pipe_to) // It's implemented to get the IO of the process with proc_id.
 	{
 		int fdin = default_in;
 		int fdout = default_out;
 
 		auto prev = pipe_lookup.find(proc_id - 1);
 		auto next = pipe_lookup.find(proc_id);
+		if (pipe_to > 1)
+			next = pipe_lookup.find(proc_id + pipe_to - 1);
 
 		if (prev != pipe_lookup.end())
 		{
@@ -203,8 +206,10 @@ public:
 				int proc_id = exectest[i];
 				if (proc_id != -1)
 				{
-					auto fd = PipeManager::get_fd(proc_id);
-					execute(std::get<CMD>(cmd_result[i]), std::get<0>(fd), std::get<1>(fd));
+					int pipe_to = std::get<PIPETO>(cmd_result[i]);
+					std::cout << "& " << std::get<CMD>(cmd_result[i])[0] << " " << pipe_to
+						<< "\n";
+					execute(std::get<CMD>(cmd_result[i]), proc_id, pipe_to);
 				}
 				else
 				{
@@ -238,7 +243,7 @@ public:
 	}
 
 
-	void execute(std::vector<std::string> &cmd_result, int infd = -1, int outfd = -1)
+	void execute(std::vector<std::string> &cmd_result, int proc_id = -1, int pipe_to = 0)
 	{
 		char **argv = new char *[cmd_result.size() + 1];
 		for (int i = 0; i < cmd_result.size(); i++)
@@ -247,6 +252,7 @@ public:
 		}
 		argv[cmd_result.size()] = NULL;
 
+		std::cout << "* " << argv[0] << "\n";
 
 		pid_t child_pid = fork();
 		if (child_pid < 0)
@@ -255,31 +261,39 @@ public:
 			exit(1);
 		}
 
+		int infd, outfd;
+
+		auto prev = PipeManager::pipe_lookup.find(proc_id - 1);
+
 		if (child_pid == CHILD)
 		{
-			dup2(infd, 0);
-			dup2(outfd, 1);
-			
-			if (outfd != 1)
+			if (prev != PipeManager::pipe_lookup.end())
 			{
-				close(outfd - 1);
+				infd = std::get<PIPEOUT>(prev->second);
+				dup2(infd, 0);
+				close(std::get<PIPEIN>(prev->second));
 			}
-			if (infd != 0)
+
+			if (pipe_to > 0)
 			{
-				close(infd + 1);
+				auto next = PipeManager::pipe_lookup.find(proc_id + pipe_to - 1);
+
+				if (next != PipeManager::pipe_lookup.end())
+				{
+					outfd = std::get<PIPEIN>(next->second);
+					dup2(outfd, 1);
+					close(std::get<PIPEOUT>(next->second));
+				}
 			}
 
 			execvp(argv[0], argv);
 		}
 		else
 		{
-			if (outfd != 1)
+			if (prev != PipeManager::pipe_lookup.end())
 			{
-				close(outfd);
-			}
-			if (infd != 0)
-			{
-				close(infd);
+				close(std::get<PIPEIN>(prev->second));
+				close(std::get<PIPEOUT>(prev->second));
 			}
 			
 			int status;
@@ -293,7 +307,8 @@ public:
 
 	bool is_file_exist(std::string filename)
 	{
-		filename = "/bin/" + filename;
+		std::string path(getenv("PATH"));
+		filename = path + "/" + filename;
 		return access(filename.c_str(), F_OK) == 0;
 	}
 
@@ -347,7 +362,8 @@ int main(int argc, char *argv[])
 	//	std::cout << "\n";
 	//	std::cout << "PIPETO: " << std::get<PIPETO>(t) << "\n";
 	//}
-
+	//
+	
 	Console<Parser, PipeManager> console;
 
 	console.run();
