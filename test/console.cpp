@@ -2,7 +2,9 @@
 #define __CONSOLE_HPP__
 
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <cstdio>
 #include <cstdlib>
@@ -256,15 +258,35 @@ public:
 
 	void execute(std::vector<std::string> &cmd_result, int proc_id = -1, int pipe_to = 0)
 	{
-		char **argv = new char *[cmd_result.size() + 1];
-		for (int i = 0; i < cmd_result.size(); i++)
+		//char **argv = new char *[cmd_result.size() + 1];
+		//for (int i = 0; i < cmd_result.size(); i++)
+		//{
+		//	argv[i] = (char *)cmd_result[i].c_str();
+		//}
+		//argv[cmd_result.size()] = NULL;
+
+		bool is_write_file = false;
+		std::string ofilename;
+
+		std::vector<char *> argv;
+		for (auto &s : cmd_result)
 		{
-			argv[i] = (char *)cmd_result[i].c_str();
+			if (s == ">")
+			{
+				is_write_file = true;
+				continue;
+			}
+
+			if (is_write_file == false)
+			{
+				argv.push_back((char *)s.c_str());
+			}
+			else
+			{
+				ofilename = s;
+			}
 		}
-		argv[cmd_result.size()] = NULL;
-
-
-
+		argv.push_back(NULL);
 
 		pid_t child_pid = fork();
 		if (child_pid < 0)
@@ -295,10 +317,31 @@ public:
 					outfd = std::get<PIPEIN>(next->second);
 					dup2(outfd, 1);
 					close(std::get<PIPEOUT>(next->second));
+
+					if (is_write_file)
+					{
+						// When writing to file, close the input-side of Pipe
+						close(std::get<PIPEIN>(next->second)); 
+					}
 				}
 			}
 
-			execvp(argv[0], argv);
+			if (is_write_file)
+			{
+				const int oflags = O_CREAT | O_WRONLY;
+				const mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
+
+				int filefd = open(ofilename.c_str(), oflags, mode);
+				if (filefd < 0)
+				{
+					std::cerr << "File open failed!\n";
+					exit(EXIT_FAILURE);
+				}
+
+				dup2(filefd, 1);
+			}
+
+			execvp(argv[0], argv.data());
 		}
 		else
 		{
