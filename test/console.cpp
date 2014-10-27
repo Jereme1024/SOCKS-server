@@ -176,12 +176,15 @@ public:
 		std::cout << get_MOTD();
 	}
 
+
 	void run()
 	{
 		std::cout << "% ";
 		while (std::getline(std::cin, cmd_line))
 		{
 			Parser::parse(cmd_result, cmd_line);
+
+			specify_cmd(cmd_result);
 
 			int exec_size = verify_cmd(cmd_result, exectest);
 
@@ -227,6 +230,27 @@ public:
 	}
 
 
+	void specify_cmd(std::vector<std::tuple<std::vector<std::string>, int>> &cmd_result)
+	{
+		for (auto it = cmd_result.begin(); it != cmd_result.end(); ++it)
+		{
+			auto cmd  = std::get<CMD>(*it);
+			if (cmd[0] == "printenv")
+			{
+				std::cout << cmd[1] << "= " << getenv(cmd[1].c_str()) << "\n";
+				cmd_result.erase(it);
+			}
+			else if (cmd[0] == "setenv")
+			{
+				setenv(cmd[1].c_str(), cmd[2].c_str(), true);
+				cmd_result.erase(it);
+			}
+
+			if (cmd_result.size() < 1) break;
+		}
+	}
+
+
 	int verify_cmd(std::vector<std::tuple<std::vector<std::string>, int>> &cmd_result, std::vector<int> &exectest)
 	{
 		exectest.clear();
@@ -258,13 +282,6 @@ public:
 
 	void execute(std::vector<std::string> &cmd_result, int proc_id = -1, int pipe_to = 0)
 	{
-		//char **argv = new char *[cmd_result.size() + 1];
-		//for (int i = 0; i < cmd_result.size(); i++)
-		//{
-		//	argv[i] = (char *)cmd_result[i].c_str();
-		//}
-		//argv[cmd_result.size()] = NULL;
-
 		bool is_write_file = false;
 		std::string ofilename;
 
