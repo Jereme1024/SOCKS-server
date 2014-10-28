@@ -16,6 +16,7 @@
 #include <sstream>
 #include <fstream>
 #include <map>
+#include <regex>
 #include "server.hpp"
 
 enum pid_dic { CHILD = 0 };
@@ -81,7 +82,11 @@ public:
 		}
 
 		int fd[2];
-		pipe(fd);
+		if (pipe(fd) < 0)
+		{
+			std::cerr << "Pipe open failed!\n";
+			exit(EXIT_FAILURE);
+		}
 
 		pipe_lookup[pipe_id] = std::make_tuple(fd[PIPEOUT], fd[PIPEIN], false, false); // fd[0], fd[1], false, false
 	}
@@ -158,6 +163,30 @@ public:
 			result.push_back(buf);
 		}
 	}
+
+	std::smatch regex_parse(const std::string &str, const std::regex &e)
+	{
+		std::smatch result;
+		std::regex_match(str, result, e);
+		std::regex_search(str, result, e);
+
+		return result;
+	}
+
+	void regex_parse2()
+	{
+		std::string s ("this subject has a submarine as a subsequence");
+		std::smatch m;
+		std::regex e ("\\b(sub)([^ ]*)");
+
+		while (std::regex_search (s,m,e))
+		{
+			for (auto x:m) std::cout << x << " ";
+			std::cout << std::endl;
+			s = m.suffix().str();
+		}
+
+	}
 };
 
 
@@ -175,6 +204,8 @@ private:
 public:
 	Console() : proc_counter(0)
 	{
+		setenv("PATH", "bin:.", true);
+
 		Server server;
 
 		client_fd = server.accept_one();
@@ -199,27 +230,6 @@ public:
 
 			int exec_size = verify_cmd(cmd_result, exectest);
 
-			for (int i = 0; i < cmd_result.size(); i++)
-			{
-				int proc_id = exectest[i];
-				if (proc_id != -1)
-				{
-					int pipe_to = std::get<PIPETO>(cmd_result[i]);
-					bool is_need_pipe = (pipe_to != 0);
-
-					if (is_need_pipe)
-					{
-						int pipe_id = proc_id + (pipe_to - 1);
-						PipeManager::register_pipe(pipe_id);
-					}
-
-				}
-				else
-				{
-					break;
-				}
-			}
-
 			int infd, outfd;
 			for (int i = 0; i < cmd_result.size(); i++)
 			{
@@ -227,6 +237,14 @@ public:
 				if (proc_id != -1)
 				{
 					int pipe_to = std::get<PIPETO>(cmd_result[i]);
+
+					bool is_need_pipe = (pipe_to != 0);
+
+					if (is_need_pipe)
+					{
+						int pipe_id = proc_id + (pipe_to - 1);
+						PipeManager::register_pipe(pipe_id);
+					}
 					execute(std::get<CMD>(cmd_result[i]), proc_id, pipe_to);
 				}
 				else
@@ -273,20 +291,50 @@ public:
 		exectest.clear();
 		int count = 0;
 		bool is_terminated = false;
+		std::string path_all(getenv("PATH"));
+		std::vector<std::string> paths;
+
+		for (int i = 0; i < path_all.size(); i++)
+		{
+			if (path_all[i] == ':')
+			{
+				path_all[i] = ' ';
+			}
+		}
+
+		std::stringstream path_ss(path_all);
+
+		std::string path;
+		while (path_ss >> path)
+		{
+			paths.push_back(path);
+		}
+
+		bool is_found;
 		for (auto &cmd : cmd_result)
 		{
+			is_found = false;
+
 			if (is_terminated)
 			{
 				exectest.push_back(-1);
 				continue;
 			}
 
-			if (is_file_exist(std::get<CMD>(cmd)[0]))
+			// Test executable in each path
+			for (auto &path : paths)
 			{
-				exectest.push_back(proc_counter++);
-				count++;
+				if (is_file_exist_future(std::get<CMD>(cmd)[0], path))
+				{
+					exectest.push_back(proc_counter++);
+					count++;
+
+					is_found = true;
+					break;
+				}
 			}
-			else
+
+			if (is_found == false)
 			{
 				exectest.push_back(-1);
 				is_terminated = true;
@@ -401,9 +449,23 @@ public:
 		return access(filename.c_str(), F_OK) == 0;
 	}
 
+	bool is_file_exist_future(std::string &filename, std::string &prefix)
+	{
+		std::string testname = prefix + "/" + filename;
+
+		bool is_exist = (access(testname.c_str(), F_OK) == 0);
+
+		if (is_exist)
+		{
+			filename = testname;
+		}
+
+		return is_exist;
+	}
+
 	std::string get_MOTD()
 	{
-		std::string filename("motd");
+		std::string filename("etc/motd");
 		
 		char *motd_buffer;
 		std::fstream motd_file(filename);
@@ -433,30 +495,8 @@ public:
 
 int main(int argc, char *argv[])
 {
-	//std::vector<std::tuple<std::vector<std::string>, int>> cmd_result;
-	////std::string cmd_line = "ls -al -h | cat      | cat    |3 cat  ";
-	//std::string cmd_line = "ls -al -h | cat | qq";
-
-	//Parser parser;
-
-	//parser.parse(cmd_result, cmd_line);
-
-	//for (auto &t : cmd_result)
-	//{
-	//	std::cout << "CMD: ";
-	//	for (auto &s : std::get<CMD>(t))
-	//	{
-	//		std::cout << s << " ";
-	//	}
-	//	std::cout << "\n";
-	//	std::cout << "PIPETO: " << std::get<PIPETO>(t) << "\n";
-	//}
-	//
-	
 	Console<Parser, PipeManager> console;
-
 	console.run();
-	
 
 	return 0;
 }

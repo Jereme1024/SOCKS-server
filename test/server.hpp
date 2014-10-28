@@ -36,10 +36,11 @@ public:
 		server_addr.sin_addr.s_addr = INADDR_ANY;
 		server_addr.sin_port = htons(portno);
 
-		if (bind(sockfd, (sockaddr *) &server_addr, sizeof(server_addr)) < 0)
+		while (bind(sockfd, (sockaddr *) &server_addr, sizeof(server_addr)) < 0)
 		{
 			std::cerr << "Server bind failed.\n";
-			exit(-1);
+			std::cerr << "Try to bind port " << ++portno << "\n";
+			server_addr.sin_port = htons(portno);
 		}
 
 		listen(sockfd, MAX_CONNECTION);
