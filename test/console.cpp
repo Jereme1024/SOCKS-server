@@ -249,7 +249,7 @@ public:
 				}
 				else
 				{
-					std::cerr << " Unknown command: [" << std::get<CMD>(cmd_result[i])[0] << "]\n";
+					std::cerr << " Unknown command: [" << std::get<CMD>(cmd_result[i])[0] << "].\n";
 					break;
 				}
 			}
@@ -266,7 +266,7 @@ public:
 			auto cmd  = std::get<CMD>(*it);
 			if (cmd[0] == "printenv")
 			{
-				std::cout << cmd[1] << "= " << getenv(cmd[1].c_str()) << "\n";
+				std::cout << cmd[1] << "=" << getenv(cmd[1].c_str()) << "\n";
 				cmd_result.erase(it);
 			}
 			else if (cmd[0] == "setenv")
