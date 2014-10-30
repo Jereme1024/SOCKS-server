@@ -113,6 +113,42 @@ public:
 
 };
 
+class SimpleParser
+{
+public:
+	std::vector<std::string> split(std::string str)
+	{
+		return split_default(str);
+	}
+
+	std::vector<std::string> split(std::string str, std::string separator)
+	{
+		for (int i = 0; i < str.length(); i++)
+		{
+			if (separator.find(str[i]) != std::string::npos)
+			{
+				str[i] = ' ';
+			}
+		}
+
+		return split_default(str);
+	}
+
+	inline std::vector<std::string> split_default(std::string &str)
+	{
+		std::stringstream ss(str);
+		std::vector<std::string> result;
+		std::string input;
+
+		while (ss >> input)
+		{
+			result.push_back(input);
+		}
+
+		return result;
+	}
+};
+
 class Parser
 {
 public:
@@ -177,7 +213,8 @@ public:
 	{
 		std::string s ("this subject has a submarine as a subsequence");
 		std::smatch m;
-		std::regex e ("\\b(sub)([^ ]*)");
+		//std::regex e ("\\b(sub)([^ ]*)", std::regex::ECMAScript | std::regex::icase);
+		std::regex e ("\\b(sub)([^ ]*)", std::regex_constants::basic);
 
 		while (std::regex_search (s,m,e))
 		{
@@ -186,6 +223,33 @@ public:
 			s = m.suffix().str();
 		}
 
+	}
+
+	void qq()
+	{
+		std::string lines[] = {"Roses are #ff0000",
+			"violets are #0000ff",
+			"all of my base are belong to you"};
+
+		std::regex color_regex("#([a-f0-9]{2})"
+				"([a-f0-9]{2})"
+				"([a-f0-9]{2})");
+
+		for (const auto &line : lines) {
+			std::cout << line << ": " 
+				<< std::regex_search(line, color_regex) << '\n';
+		}   
+
+		std::smatch color_match;
+		for (const auto &line : lines) {
+			std::regex_search(line, color_match, color_regex);
+			std::cout << "matches for '" << line << "'\n";
+			for (size_t i = 0; i < color_match.size(); ++i) {
+				std::ssub_match sub_match = color_match[i];
+				std::string sub_match_str = sub_match.str();
+				std::cout << i << ": " << sub_match_str << '\n';
+			}   
+		}   
 	}
 };
 
