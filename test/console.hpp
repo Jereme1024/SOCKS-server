@@ -265,12 +265,16 @@ public:
 			auto cmd  = std::get<CMD>(*it);
 			if (cmd[0] == "printenv")
 			{
-				std::cout << cmd[1] << "=" << getenv(cmd[1].c_str()) << "\n";
+				if (cmd.size() == 2)
+					std::cout << cmd[1] << "=" << getenv(cmd[1].c_str()) << "\n";
+
 				cmd_result.erase(it);
 			}
 			else if (cmd[0] == "setenv")
 			{
-				setenv(cmd[1].c_str(), cmd[2].c_str(), true);
+				if (cmd.size() == 3)
+					setenv(cmd[1].c_str(), cmd[2].c_str(), true);
+
 				cmd_result.erase(it);
 			}
 			else if (cmd[0] == "exit")
