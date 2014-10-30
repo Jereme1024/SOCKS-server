@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <string.h>
+#include <signal.h>
 #include <cstdlib>
 #include <cstdio>
 #include <iostream>
