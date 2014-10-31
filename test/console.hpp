@@ -113,145 +113,6 @@ public:
 
 };
 
-class SimpleParser
-{
-public:
-	std::vector<std::string> split(std::string str)
-	{
-		return split_default(str);
-	}
-
-	std::vector<std::string> split(std::string str, std::string separator)
-	{
-		for (int i = 0; i < str.length(); i++)
-		{
-			if (separator.find(str[i]) != std::string::npos)
-			{
-				str[i] = ' ';
-			}
-		}
-
-		return split_default(str);
-	}
-
-	inline std::vector<std::string> split_default(std::string &str)
-	{
-		std::stringstream ss(str);
-		std::vector<std::string> result;
-		std::string input;
-
-		while (ss >> input)
-		{
-			result.push_back(input);
-		}
-
-		return result;
-	}
-};
-
-class Parser
-{
-public:
-	void parse(std::vector<std::tuple<std::vector<std::string>, int>> &cmd_result, std::string &cmd_line)
-	{
-		std::vector<std::string> ws_result;
-
-		cmd_result.clear();
-
-		split_by_whitespace(ws_result, cmd_line);
-
-		std::vector<std::string> prog;
-		for (auto &token : ws_result)
-		{
-			bool is_pipe_symbol = (token.find("|") != std::string::npos);
-			if (is_pipe_symbol)
-			{
-				if (token.size() == 1)
-				{
-					cmd_result.push_back(std::make_tuple(prog, 1));
-				}
-				else
-				{
-					cmd_result.push_back(std::make_tuple(prog, std::atoi(token.c_str() + 1)));
-				}
-				
-				prog.clear();
-			}
-			else
-			{
-				prog.push_back(token);
-			}
-		}
-
-		if (prog.size() != 0)
-		{
-			cmd_result.push_back(std::make_tuple(prog, 0));
-		}
-	}
-
-	void split_by_whitespace(std::vector<std::string> &result, std::string &str)
-	{
-		std::string buf;
-		std::stringstream ss(str);
-
-		while (ss >> buf)
-		{
-			result.push_back(buf);
-		}
-	}
-
-	std::smatch regex_parse(const std::string &str, const std::regex &e)
-	{
-		std::smatch result;
-		std::regex_match(str, result, e);
-		std::regex_search(str, result, e);
-
-		return result;
-	}
-
-	void regex_parse2()
-	{
-		std::string s ("this subject has a submarine as a subsequence");
-		std::smatch m;
-		//std::regex e ("\\b(sub)([^ ]*)", std::regex::ECMAScript | std::regex::icase);
-		std::regex e ("\\b(sub)([^ ]*)", std::regex_constants::basic);
-
-		while (std::regex_search (s,m,e))
-		{
-			for (auto x:m) std::cout << x << " ";
-			std::cout << std::endl;
-			s = m.suffix().str();
-		}
-
-	}
-
-	void qq()
-	{
-		std::string lines[] = {"Roses are #ff0000",
-			"violets are #0000ff",
-			"all of my base are belong to you"};
-
-		std::regex color_regex("#([a-f0-9]{2})"
-				"([a-f0-9]{2})"
-				"([a-f0-9]{2})");
-
-		for (const auto &line : lines) {
-			std::cout << line << ": " 
-				<< std::regex_search(line, color_regex) << '\n';
-		}   
-
-		std::smatch color_match;
-		for (const auto &line : lines) {
-			std::regex_search(line, color_match, color_regex);
-			std::cout << "matches for '" << line << "'\n";
-			for (size_t i = 0; i < color_match.size(); ++i) {
-				std::ssub_match sub_match = color_match[i];
-				std::string sub_match_str = sub_match.str();
-				std::cout << i << ": " << sub_match_str << '\n';
-			}   
-		}   
-	}
-};
 
 
 template <class Parser, class PipeManager>
@@ -264,6 +125,8 @@ private:
 	std::vector<int> exectest;
 	int proc_counter;
 	int client_fd;
+
+	typedef std::vector<std::tuple<std::vector<std::string>, int>> command_t;
 
 public:
 	Console() : proc_counter(0)
@@ -278,6 +141,45 @@ public:
 		dup2(new_fd, 2);
 	}
 
+	command_t parse_cmd(std::string &cmd_line)
+	{
+		auto tokens = Parser::split(cmd_line);
+		command_t cmd_result;
+
+		std::vector<std::string> single_command;
+		int pipe_to = 0;
+
+		for (auto &token : tokens)
+		{
+			const bool is_pipe_symbol = token.find("|") != std::string::npos;
+			if (is_pipe_symbol)
+			{
+				if (token.length() == 1)
+				{
+					pipe_to = 1;
+				}
+				else
+				{
+					pipe_to = std::atoi(token.c_str() + 1);
+				}
+
+				cmd_result.push_back(std::make_tuple(std::vector<std::string>(), pipe_to));
+				std::get<CMD>(cmd_result.back()).swap(single_command);
+			}
+			else
+			{
+				single_command.push_back(token);
+			}
+		}
+
+		if (single_command.size() != 0)
+		{
+			cmd_result.push_back(std::make_tuple(std::move(single_command), 0));
+		}
+
+		return cmd_result;
+	}
+
 
 	void run()
 	{
@@ -286,7 +188,7 @@ public:
 		std::cout << "% ";
 		while (std::getline(std::cin, cmd_line))
 		{
-			Parser::parse(cmd_result, cmd_line);
+			cmd_result = parse_cmd(cmd_line);
 
 			bool is_go_ahead = specify_cmd(cmd_result);
 			if (!is_go_ahead) break;
@@ -361,21 +263,7 @@ public:
 		std::string path_all(getenv("PATH"));
 		std::vector<std::string> paths;
 
-		for (int i = 0; i < path_all.size(); i++)
-		{
-			if (path_all[i] == ':')
-			{
-				path_all[i] = ' ';
-			}
-		}
-
-		std::stringstream path_ss(path_all);
-
-		std::string path;
-		while (path_ss >> path)
-		{
-			paths.push_back(path);
-		}
+		paths = Parser::split(path_all, ":");
 
 		bool is_found;
 		for (auto &cmd : cmd_result)
