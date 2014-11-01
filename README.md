@@ -41,11 +41,13 @@ bin/		test.html
 ls		cat		removetag     removetag0    number
 % cat test.html > test1.txt
 % cat test1.txt
+<p>
 <!test.html>
 <TITLE>Test<TITLE>
 <BODY>This is a <b>test</b> program
 for ras.
 </BODY>
+</p>
 % removetag test.html
 
 Test
@@ -129,10 +131,5 @@ for ras.
   This is a test program
   for ras.
 
-% date
-  Unknown Command: [date].
-# Let TA do this "cp /bin/date bin"  in your csh directory
-% date
-  Wed Oct  1 00:41:50 CST 2003
 % exit
 csh>
