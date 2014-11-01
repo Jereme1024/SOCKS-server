@@ -3,7 +3,7 @@
 
 #include <vector>
 #include <string>
-#include <stringstream>
+#include <sstream>
 
 class SimpleParser
 {

@@ -8,125 +8,40 @@
 #include <sys/wait.h>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <string>
 #include <vector>
 #include <tuple>
 #include <iostream>
-#include <sstream>
-#include <fstream>
 #include <map>
-#include <regex>
-#include "server.hpp"
 
 enum pid_dic { CHILD = 0 };
 enum cmd_dic { CMD = 0, PIPETO = 1};
 enum pip_dic { PIPEIN = 1, PIPEOUT = 0};
+enum res_dic { DEFAULT, PIPE, FL};
 
-class PipeManager
+struct Command
 {
-private:
-	enum std_dic { STDIN = 0, STDOUT, STDERR};
-	enum pip_dic { PIPEIN = 1, PIPEOUT = 0, PIPEIN_USED = 3, PIPEOUT_USED = 2};
-	int default_in;
-	int default_out;
-
-public:
-	std::map<int, std::tuple<int, int, bool, bool>> pipe_lookup;
-
-	PipeManager() : default_in(STDIN), default_out(STDOUT)
-	{}
-
-	void set_default_in(int fd)
-	{
-		default_in = fd;
-	}
-
-	void set_default_out(int fd)
-	{
-		default_out = fd;
-	}
-
-	std::tuple<int, int> get_fd(int proc_id, int pipe_to) // It's implemented to get the IO of the process with proc_id.
-	{
-		int fdin = default_in;
-		int fdout = default_out;
-
-		auto prev = pipe_lookup.find(proc_id - 1);
-		auto next = pipe_lookup.find(proc_id);
-		if (pipe_to > 1)
-			next = pipe_lookup.find(proc_id + pipe_to - 1);
-
-		if (prev != pipe_lookup.end())
-		{
-			fdin = std::get<PIPEOUT>(prev->second);
-			std::get<PIPEOUT_USED>(prev->second) = true;
-		}
-
-		if (next != pipe_lookup.end())
-		{
-			fdout = std::get<PIPEIN>(next->second);
-			std::get<PIPEIN_USED>(prev->second) = true;
-		}
-
-		return std::make_tuple(fdin, fdout);
-	}
-
-	void register_pipe(int pipe_id)
-	{
-		auto it = pipe_lookup.find(pipe_id);
-		if (it != pipe_lookup.end())
-		{
-			// This pipe is exist, so need not to register again!
-			return;
-		}
-
-		int fd[2];
-		if (pipe(fd) < 0)
-		{
-			std::cerr << "Pipe open failed!\n";
-			exit(EXIT_FAILURE);
-		}
-
-		pipe_lookup[pipe_id] = std::make_tuple(fd[PIPEOUT], fd[PIPEIN], false, false); // fd[0], fd[1], false, false
-	}
-
-	void unregister_pipe(int pipe_id)
-	{
-		auto it = pipe_lookup.find(pipe_id);
-		if (it == pipe_lookup.end())
-		{
-			// This pipe is no found, so need not to unregister!
-			return;
-		}
-
-		bool is_need_to_close = (std::get<PIPEIN_USED>(it->second) && std::get<PIPEOUT_USED>(it->second));
-
-		if (is_need_to_close)
-		{
-			close(std::get<PIPEIN>(it->second));
-			close(std::get<PIPEOUT>(it->second));
-			
-			pipe_lookup.erase(it);
-		}
-	}
-
+	int proc_id;
+	std::string prefix;
+	std::vector<std::string> argv;
+	int resource_type;
+	int pipe_to;
+	std::string filename;
 };
 
-
-
-template <class Parser, class PipeManager>
-class Console : public Parser, public PipeManager // Policy-based design class
+template <class Parser>
+class Console : public Parser // Policy-based design class
 {
 private:
 	std::string cmd_line;
 	std::vector<std::tuple<std::vector<std::string>, int>> cmd_result;
-	std::vector<std::tuple<int, int>> pipe_vector; // DEPRECATED
 	std::vector<int> exectest;
+	std::map<int, std::tuple<int, int>> pipe_lookup;
 	int proc_counter;
-	int client_fd;
 
 	typedef std::vector<std::tuple<std::vector<std::string>, int>> command_t;
+	typedef std::vector<std::vector<std::string>> parse_tree;
+	typedef std::vector<Command> command_vec;
 
 public:
 	Console() : proc_counter(0)
@@ -143,83 +58,346 @@ public:
 
 	command_t parse_cmd(std::string &cmd_line)
 	{
-		auto tokens = Parser::split(cmd_line);
 		command_t cmd_result;
 
-		std::vector<std::string> single_command;
-		int pipe_to = 0;
-
-		for (auto &token : tokens)
+		if (cmd_line.find("/") != std::string::npos)
 		{
-			const bool is_pipe_symbol = token.find("|") != std::string::npos;
-			if (is_pipe_symbol)
+			std::cout << "Permission denied.\n";
+		}
+		else
+		{
+			auto tokens = Parser::split(cmd_line);
+
+			std::vector<std::string> single_command;
+			int pipe_to = 0;
+
+			for (auto &token : tokens)
 			{
-				if (token.length() == 1)
+				const bool is_pipe_symbol = token.find("|") != std::string::npos;
+				if (is_pipe_symbol)
 				{
-					pipe_to = 1;
+					if (token.length() == 1)
+					{
+						pipe_to = 1;
+					}
+					else
+					{
+						pipe_to = std::atoi(token.c_str() + 1);
+					}
+
+					cmd_result.push_back(std::make_tuple(std::vector<std::string>(), pipe_to));
+					std::get<CMD>(cmd_result.back()).swap(single_command);
 				}
 				else
 				{
-					pipe_to = std::atoi(token.c_str() + 1);
+					single_command.push_back(token);
 				}
-
-				cmd_result.push_back(std::make_tuple(std::vector<std::string>(), pipe_to));
-				std::get<CMD>(cmd_result.back()).swap(single_command);
 			}
-			else
+
+			if (single_command.size() != 0)
 			{
-				single_command.push_back(token);
+				cmd_result.push_back(std::make_tuple(std::move(single_command), 0));
 			}
-		}
-
-		if (single_command.size() != 0)
-		{
-			cmd_result.push_back(std::make_tuple(std::move(single_command), 0));
 		}
 
 		return cmd_result;
 	}
 
+	void execute_cmd(command_t &cmd_result, std::vector<int> &exectest)
+	{
+		for (int i = 0; i < cmd_result.size(); i++)
+		{
+			int proc_id = exectest[i];
+			if (proc_id != -1)
+			{
+				int pipe_to = std::get<PIPETO>(cmd_result[i]);
+
+				const bool is_need_pipe = (pipe_to != 0);
+				if (is_need_pipe)
+				{
+					const int pipe_id = proc_id + (pipe_to - 1);
+					register_pipe(pipe_id);
+				}
+				execute(cmd_result[i], proc_id);
+
+			}
+			else
+			{
+				std::cerr << " Unknown command: [" << std::get<CMD>(cmd_result[i])[0] << "].\n";
+				break;
+			}
+		}
+
+	}
+
+
+	command_vec setup_cmd(parse_tree &parsed_cmd)
+	{
+		command_vec commands;
+
+		for (auto &argv : parsed_cmd)
+		{
+			Command cmd;
+			cmd.resource_type = DEFAULT;
+
+			if (argv.back().find("|") != std::string::npos)
+			{
+				cmd.resource_type = PIPE;
+
+				int pipe_to = 1;
+				if (argv.back().length() != 1)
+				{
+					pipe_to = std::atoi(argv.back().c_str() + 1);
+				}
+
+				cmd.pipe_to = pipe_to;
+				argv.pop_back();
+			}
+
+			if (argv.size() > 2)
+			{
+				if (argv[argv.size() - 2] == ">")
+				{
+					cmd.resource_type = FL;
+					
+					cmd.filename = argv.back();
+					argv.resize(argv.size() - 2);
+				}
+			}
+
+			cmd.argv = argv;
+
+			commands.push_back(std::move(cmd));
+		}
+
+		verify_cmd_future(commands);
+
+		return commands;
+	}
+
+	void verify_cmd_future(command_vec &commands)
+	{
+		bool is_terminated = false;
+		std::string path_all(getenv("PATH"));
+		std::vector<std::string> paths;
+
+		paths = Parser::split(path_all, ":");
+
+		bool is_cmd_found;
+		for (auto &cmd : commands)
+		{
+			is_cmd_found = false;
+
+			// Test executable in each path
+			for (auto &path : paths)
+			{
+				if (is_file_exist(cmd.argv[0], path))
+				{
+					cmd.prefix = path + "/";
+					cmd.proc_id = proc_counter++;
+
+					is_cmd_found = true;
+					break;
+				}
+			}
+
+			if (is_cmd_found == false)
+			{
+				cmd.proc_id = -1;
+				break;
+			}
+		}
+	}
+
+	bool execute_builtin_cmd(command_vec &commands)
+	{
+		for (auto it = commands.begin(); it != commands.end(); ++it)
+		{
+			auto &cmd  = it->argv;
+			if (cmd[0] == "printenv")
+			{
+				if (cmd.size() == 2)
+					std::cout << cmd[1] << "=" << getenv(cmd[1].c_str()) << "\n";
+
+				commands.erase(it);
+			}
+			else if (cmd[0] == "setenv")
+			{
+				if (cmd.size() == 3)
+					setenv(cmd[1].c_str(), cmd[2].c_str(), true);
+
+				commands.erase(it);
+			}
+			else if (cmd[0] == "exit")
+			{
+				return false;
+			}
+
+			if (commands.size() < 1) break;
+		}
+		return true;
+	}
+
+	void execute_cmd_future(command_vec &commands)
+	{
+		for (auto &cmd : commands)
+		{
+			if (cmd.proc_id != -1)
+			{
+				execute_future(cmd);
+			}
+			else
+			{
+				std::cerr << " Unknown command: [" << cmd.argv[0] << "].\n";
+				break;
+			}
+		}
+	}
+
+
+	inline std::vector<char *> c_style(std::vector<std::string> &vec_str)
+	{
+		std::vector<char *> vec_charp;
+		for (auto &str : vec_str)
+		{
+			vec_charp.push_back((char *)str.c_str());
+		}
+		vec_charp.push_back(NULL);
+
+		return vec_charp;
+	}
+
+	void execute_future(Command &cmd)
+	{
+		if (cmd.resource_type == PIPE)
+		{
+			register_pipe(cmd.proc_id + cmd.pipe_to - 1);
+		}
+
+		pid_t child_pid = fork();
+		if (child_pid < 0)
+		{
+			std::cerr << "fork child failed.\n";
+			exit(1);
+		}
+
+		auto prev = pipe_lookup.find(cmd.proc_id - 1);
+
+		if (child_pid == CHILD)
+		{
+			if (prev != pipe_lookup.end())
+			{
+				const int infd = std::get<PIPEOUT>(prev->second);
+				dup2(infd, 0);
+				close(std::get<PIPEIN>(prev->second));
+			}
+			auto next = prev;
+
+			switch(cmd.resource_type)
+			{
+				case PIPE:
+					next = pipe_lookup.find(cmd.proc_id + cmd.pipe_to - 1);
+					if (next != pipe_lookup.end())
+					{
+						const int outfd = std::get<PIPEIN>(next->second);
+						dup2(outfd, 1);
+						close(std::get<PIPEOUT>(next->second));
+					}
+					break;
+
+				case FL:
+					const int oflags = O_CREAT | O_WRONLY;
+					const mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
+
+					const int filefd = open(cmd.filename.c_str(), oflags, mode);
+					if (filefd < 0)
+					{
+						std::cerr << "File open failed!\n";
+						exit(EXIT_FAILURE);
+					}
+
+					dup2(filefd, 1);
+			}
+
+			auto argv = c_style(cmd.argv);
+			execvp(argv[0], argv.data());
+		}
+		else
+		{
+			unregister_pipe(cmd.proc_id - 1);
+			
+			int status;
+			if (wait(&status) < 0)
+			{
+				std::cerr << "Wait child failed.\n";
+				exit(EXIT_FAILURE);
+			}
+		}
+	}
 
 	void run()
 	{
 		std::cout << get_MOTD();
 
-		std::cout << "% ";
-		while (std::getline(std::cin, cmd_line))
+		while (get_command())
 		{
-			cmd_result = parse_cmd(cmd_line);
+			auto parsed_result = parse_cmd_future(cmd_line);
+			auto commands = setup_cmd(parsed_result);
 
-			bool is_go_ahead = specify_cmd(cmd_result);
-			if (!is_go_ahead) break;
+			if (execute_builtin_cmd(commands) == false)
+				break;
 
-			int exec_size = verify_cmd(cmd_result, exectest);
+			execute_cmd_future(commands);
+		}
+	}
 
-			int infd, outfd;
-			for (int i = 0; i < cmd_result.size(); i++)
+	parse_tree parse_cmd_future(std::string &cmd_line)
+	{
+		parse_tree result;
+
+		if (cmd_line.find("/") != std::string::npos)
+		{
+			std::cout << "Permission denied.\n";
+		}
+		else
+		{
+			std::vector<std::string> single_command;
+
+			auto tokens = Parser::split(cmd_line);
+			for (auto &token : tokens)
 			{
-				int proc_id = exectest[i];
-				if (proc_id != -1)
+				single_command.push_back(token);
+				
+				const bool is_pipe_symbol = token.find("|") != std::string::npos;
+				if (is_pipe_symbol)
 				{
-					int pipe_to = std::get<PIPETO>(cmd_result[i]);
-
-					bool is_need_pipe = (pipe_to != 0);
-
-					if (is_need_pipe)
-					{
-						int pipe_id = proc_id + (pipe_to - 1);
-						PipeManager::register_pipe(pipe_id);
-					}
-					execute(std::get<CMD>(cmd_result[i]), proc_id, pipe_to);
-				}
-				else
-				{
-					std::cerr << " Unknown command: [" << std::get<CMD>(cmd_result[i])[0] << "].\n";
-					break;
+					result.push_back(std::vector<std::string>());
+					result.back().swap(single_command);
 				}
 			}
 
-			std::cout << "% ";
+			if (single_command.size() != 0)
+			{
+				result.push_back(std::move(single_command));
+			}
+		}
+
+		return result;
+	}
+
+	void run_deprecated()
+	{
+		std::cout << get_MOTD();
+
+		while (get_command())
+		{
+			cmd_result = parse_cmd(cmd_line);
+
+			if (specify_cmd(cmd_result))
+			{
+				verify_cmd(cmd_result, exectest);
+				execute_cmd(cmd_result, exectest);
+			}
 		}
 	}
 
@@ -279,7 +457,7 @@ public:
 			// Test executable in each path
 			for (auto &path : paths)
 			{
-				if (is_file_exist_future(std::get<CMD>(cmd)[0], path))
+				if (is_file_exist(std::get<CMD>(cmd)[0], path))
 				{
 					exectest.push_back(proc_counter++);
 					count++;
@@ -299,14 +477,13 @@ public:
 		return count;
 	}
 
-
-	void execute(std::vector<std::string> &cmd_result, int proc_id = -1, int pipe_to = 0)
+	void execute(std::tuple<std::vector<std::string>, int> &cmd_result, int proc_id = -1)
 	{
 		bool is_write_file = false;
 		std::string ofilename;
 
 		std::vector<char *> argv;
-		for (auto &s : cmd_result)
+		for (auto &s : std::get<CMD>(cmd_result))
 		{
 			if (s == ">")
 			{
@@ -324,8 +501,17 @@ public:
 			}
 		}
 		argv.push_back(NULL);
+		
+		int pipe_to = std::get<PIPETO>(cmd_result);
+		const bool is_need_pipe = (pipe_to != 0);
+		if (is_need_pipe)
+		{
+			const int pipe_id = proc_id + (pipe_to - 1);
+			register_pipe(pipe_id);
+		}
 
 		pid_t child_pid = fork();
+
 		if (child_pid < 0)
 		{
 			std::cerr << "fork child failed.\n";
@@ -334,11 +520,11 @@ public:
 
 		int infd, outfd;
 
-		auto prev = PipeManager::pipe_lookup.find(proc_id - 1);
+		auto prev = pipe_lookup.find(proc_id - 1);
 
 		if (child_pid == CHILD)
 		{
-			if (prev != PipeManager::pipe_lookup.end())
+			if (prev != pipe_lookup.end())
 			{
 				infd = std::get<PIPEOUT>(prev->second);
 				dup2(infd, 0);
@@ -347,9 +533,9 @@ public:
 
 			if (pipe_to > 0)
 			{
-				auto next = PipeManager::pipe_lookup.find(proc_id + pipe_to - 1);
+				auto next = pipe_lookup.find(proc_id + pipe_to - 1);
 
-				if (next != PipeManager::pipe_lookup.end())
+				if (next != pipe_lookup.end())
 				{
 					outfd = std::get<PIPEIN>(next->second);
 					dup2(outfd, 1);
@@ -382,11 +568,7 @@ public:
 		}
 		else
 		{
-			if (prev != PipeManager::pipe_lookup.end())
-			{
-				close(std::get<PIPEIN>(prev->second));
-				close(std::get<PIPEOUT>(prev->second));
-			}
+			unregister_pipe(proc_id - 1);
 			
 			int status;
 			if (wait(&status) < 0)
@@ -397,19 +579,12 @@ public:
 		}
 	}
 
-	bool is_file_exist(std::string filename)
-	{
-		std::string path(getenv("PATH"));
-		filename = path + "/" + filename;
-		return access(filename.c_str(), F_OK) == 0;
-	}
 
-	bool is_file_exist_future(std::string &filename, std::string &prefix)
+	bool is_file_exist(std::string &filename, std::string &prefix)
 	{
 		std::string testname = prefix + "/" + filename;
 
-		bool is_exist = (access(testname.c_str(), F_OK) == 0);
-
+		const bool is_exist = (access(testname.c_str(), F_OK) == 0);
 		if (is_exist)
 		{
 			filename = testname;
@@ -418,31 +593,53 @@ public:
 		return is_exist;
 	}
 
-	std::string get_MOTD()
-	{
-		std::string filename("etc/motd");
-		
-		char *motd_buffer;
-		std::fstream motd_file(filename);
 
-		if (!motd_file)
+	void register_pipe(int pipe_id)
+	{
+		auto it = pipe_lookup.find(pipe_id);
+		if (it != pipe_lookup.end())
 		{
-			std::cerr << "MOTD file open failed!\n";
+			// This pipe is exist, so need not to register again!
+			return;
+		}
+
+		int fd[2];
+		if (pipe(fd) < 0)
+		{
+			std::cerr << "Pipe open failed!\n";
 			exit(EXIT_FAILURE);
 		}
 
-		motd_file.seekg(0, motd_file.end);
-		int file_length = motd_file.tellg();
-		motd_file.seekg(0, motd_file.beg);
-		
-		motd_buffer = new char[file_length + 1];
-		motd_file.read(motd_buffer, file_length);
+		pipe_lookup[pipe_id] = std::make_tuple(fd[PIPEOUT], fd[PIPEIN]); // fd[0], fd[1]
+	}
 
-		std::string motd(motd_buffer);
 
-		motd_file.close();
-		delete []motd_buffer;
+	void unregister_pipe(int pipe_id)
+	{
+		auto it = pipe_lookup.find(pipe_id);
+		if (it != pipe_lookup.end())
+		{
+			close(std::get<PIPEIN>(it->second));
+			close(std::get<PIPEOUT>(it->second));
+			
+			pipe_lookup.erase(it);
+		}
+	}
 
+
+	inline bool get_command()
+	{
+		std::cout << "% ";
+		return std::getline(std::cin, cmd_line);
+	}
+
+
+	std::string get_MOTD()
+	{
+		std::string motd;
+		motd  = "****************************************\n";
+		motd += "** Welcome to the information server. **\n";
+		motd += "****************************************\n";
 		return motd;
 	}
 };
