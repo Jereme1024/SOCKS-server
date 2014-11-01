@@ -22,9 +22,11 @@ struct Command
 {
 	int proc_id;
 	std::vector<std::string> argv;
-	int resource_type;
 	int pipe_to;
 	std::string filename;
+
+	Command() : proc_id(-1), pipe_to(0), filename()
+	{}
 };
 
 template <class Parser>
@@ -114,12 +116,9 @@ public:
 		for (auto &argv : parsed_cmd)
 		{
 			command_t cmd;
-			cmd.resource_type = DEFAULT;
 
 			if (argv.back().find("|") != std::string::npos)
 			{
-				cmd.resource_type = PIPE;
-
 				int pipe_to = 1;
 				if (argv.back().length() != 1)
 				{
@@ -134,8 +133,6 @@ public:
 			{
 				if (argv[argv.size() - 2] == ">")
 				{
-					cmd.resource_type = FL;
-					
 					cmd.filename = argv.back();
 					argv.resize(argv.size() - 2);
 				}
@@ -177,11 +174,7 @@ public:
 				}
 			}
 
-			if (is_cmd_found == false)
-			{
-				cmd.proc_id = -1;
-				break;
-			}
+			if (is_cmd_found == false) break;
 		}
 	}
 
@@ -246,7 +239,10 @@ public:
 
 	void execute(command_t &cmd)
 	{
-		if (cmd.resource_type == PIPE)
+		const bool need_pipe = (cmd.pipe_to > 0);
+		const bool need_file = (cmd.filename.length() > 0);
+
+		if (need_pipe)
 		{
 			register_pipe(cmd.proc_id + cmd.pipe_to - 1);
 		}
@@ -268,32 +264,33 @@ public:
 				dup2(infd, 0);
 				close(std::get<PIPEIN>(prev->second));
 			}
-			auto next = prev;
 
-			switch(cmd.resource_type)
+			if (need_pipe)
 			{
-				case PIPE:
-					next = pipe_lookup.find(cmd.proc_id + cmd.pipe_to - 1);
-					if (next != pipe_lookup.end())
-					{
-						const int outfd = std::get<PIPEIN>(next->second);
-						dup2(outfd, 1);
-						close(std::get<PIPEOUT>(next->second));
-					}
-					break;
+				auto next = pipe_lookup.find(cmd.proc_id + cmd.pipe_to - 1);
+				if (next != pipe_lookup.end())
+				{
+					const int outfd = std::get<PIPEIN>(next->second);
+					dup2(outfd, 1);
+					close(std::get<PIPEOUT>(next->second));
 
-				case FL:
-					const int oflags = O_CREAT | O_WRONLY;
-					const mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
+					if (need_file)
+						close(std::get<PIPEIN>(next->second));
+				}
+			}
 
-					const int filefd = open(cmd.filename.c_str(), oflags, mode);
-					if (filefd < 0)
-					{
-						std::cerr << "File open failed!\n";
-						exit(EXIT_FAILURE);
-					}
+			if (need_file)
+			{
+				const int oflags = O_CREAT | O_WRONLY;
+				const mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
+				const int filefd = open(cmd.filename.c_str(), oflags, mode);
+				if (filefd < 0)
+				{
+					std::cerr << "File open failed!\n";
+					exit(EXIT_FAILURE);
+				}
 
-					dup2(filefd, 1);
+				dup2(filefd, 1);
 			}
 
 			auto argv = c_style(cmd.argv);
