@@ -1,6 +1,12 @@
-all:
-	g++ main.cpp
-	g++ main_c.cpp -o b.out
+CC=g++
+CPPFLAGS=-std=c++11
+EXEC=proj1
 
-clean:
-	rm a.out
+
+all: console.hpp parser.hpp server.hpp proj1.cpp
+	$(CC) $(CPPFLAGS) proj1.cpp -o $(EXEC)
+
+install:
+	cp -f /bin/ls /bin/cat ras/bin/
+
+clean: rm $(EXEC)

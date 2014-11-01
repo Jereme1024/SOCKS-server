@@ -3,11 +3,15 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <string.h>
+#include <signal.h>
 #include <cstdlib>
+#include <cstdio>
 #include <iostream>
+#include <functional>
 
 const int MAX_CONNECTION = 5;
 
@@ -29,7 +33,7 @@ public:
 		if (sockfd < 0)
 		{
 			std::cerr << "Server socket open failed.\n";
-			exit(-1);
+			exit(EXIT_FAILURE);
 		}
 
 		memset(&server_addr, '0', sizeof(server_addr));
@@ -37,31 +41,40 @@ public:
 		server_addr.sin_addr.s_addr = INADDR_ANY;
 		server_addr.sin_port = htons(portno);
 
-		if (bind(sockfd, (sockaddr *) &server_addr, sizeof(server_addr)) < 0)
+		while (bind(sockfd, (sockaddr *) &server_addr, sizeof(server_addr)) < 0)
 		{
 			std::cerr << "Server bind failed.\n";
-			exit(-1);
+			std::cerr << "Try to bind port " << ++portno << "...\n";
+			server_addr.sin_port = htons(portno);
 		}
 
 		listen(sockfd, MAX_CONNECTION);
 
 		client_len = sizeof(client_addr);
+	}
 
+	int accept_one()
+	{
+		int clientfd;
+
+		if ((clientfd = accept(sockfd, (sockaddr *) &client_addr, &client_len)) < 0)
+		{
+			std::cerr << "Server accept failed.\n";
+			exit(EXIT_FAILURE);
+		}
+
+		return clientfd;
 	}
 
 	void run()
 	{
+		signal(SIGCHLD, SIG_IGN);
+		auto do_nothing = [](int n){};
+
 		while (true)
 		{
-			int clientfd;
+			int clientfd = accept_one();
 			
-			clientfd = accept(sockfd, (sockaddr *) &client_addr, &client_len);
-			if (clientfd < 0)
-			{
-				std::cerr << "Server accept failed.\n";
-				exit(-1);
-			}
-
 			int pid = fork();
 			if (pid < 0)
 			{
@@ -71,9 +84,14 @@ public:
 
 			if (pid == 0)
 			{
+				signal(SIGCHLD, do_nothing);
+
 				close(sockfd);
 
-				Service::service(clientfd, buffer, 1023);
+				Service::replace_fd(clientfd);
+				Service::run();
+
+				exit(EXIT_SUCCESS);;
 			}
 			else
 			{
