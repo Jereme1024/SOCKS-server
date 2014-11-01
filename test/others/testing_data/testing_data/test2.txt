@@ -1,13 +1,13 @@
 cat test.html
 cat test.html | removetag
-number test.html > test1.txt
-cat test1.txt | number > test2.txt
+number test.html > outtest1.txt
+cat outtest1.txt | number > outtest2.txt
 noop
 noop
 noop
 noop
 noop
 noop
-cat test1.txt
-cat test2.txt
+cat outtest1.txt
+cat outtest2.txt
 exit

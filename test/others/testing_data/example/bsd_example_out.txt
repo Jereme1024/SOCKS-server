@@ -2,10 +2,10 @@
 ** Welcome to the information server. **
 ****************************************
 % printenv PATH
-PATH= bin:.
+PATH=bin:.
 % setenv PATH bin
 % printenv PATH
-PATH= bin
+PATH=bin
 % ls
 bin
 test.html
@@ -100,7 +100,7 @@ test2.txt
 test3.txt
 % ls |2
 % UNKNOWN_COMMAND
-Unknown command: [UNKNOWN_COMMAND]
+Unknown command: [UNKNOWN_COMMAND].
 % removetag test.html | cat
 bin
 test.html
@@ -113,10 +113,10 @@ This is a test program
 for ras.
 
 % date
-Unknown command: [date]
+Unknown command: [date].
 % ls |1
 % ctt
-Unknown command: [ctt]
+Unknown command: [ctt].
 % number
    1 bin
    2 test.html
@@ -124,7 +124,7 @@ Unknown command: [ctt]
    4 test2.txt
    5 test3.txt
 % ls |1 ctt
-Unknown command: [ctt]
+Unknown command: [ctt].
 % cat
 bin
 test.html
@@ -132,7 +132,7 @@ test1.txt
 test2.txt
 test3.txt
 % ls |1 ctt | cat
-Unknown command: [ctt]
+Unknown command: [ctt].
 % cat | cat
 bin
 test.html
