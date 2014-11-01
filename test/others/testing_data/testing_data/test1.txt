@@ -4,6 +4,8 @@ setenv PATH .
 printenv PATH
 ls
 setenv PATH bin
-ls -al bin
+setenv LANG en_US
+printenv LANG
+ls bin
 date
 exit
