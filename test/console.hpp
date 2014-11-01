@@ -218,7 +218,7 @@ public:
 			}
 			else
 			{
-				std::cerr << " Unknown command: [" << cmd.argv[0] << "].\n";
+				std::cerr << "Unknown command: [" << cmd.argv[0] << "].\n";
 				break;
 			}
 		}
