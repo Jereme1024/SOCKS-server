@@ -1,6 +1,13 @@
 #ifndef _SERVER_HPP_
 #define _SERVER_HPP_
 
+/// @file
+/// @author Jeremy
+/// @version 1.0
+/// @section DESCRIPTION
+///
+/// The server class is able to handle socket operation to build a server. It accepts a Service policy with "run" interface.
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
@@ -15,6 +22,8 @@
 
 const int MAX_CONNECTION = 5;
 
+/// @brief
+/// The server class is able to handle socket operation to build a server. It accepts a Service policy with "run" interface.
 template <class Service>
 class Server : public Service
 {
@@ -26,6 +35,8 @@ private:
 	char buffer[1024];
 	
 public:
+	/// @brief This method is used to initialize a server by following socket -> bind -> listen(...).
+	/// @param port A port number with a default value 5487.
 	Server(int port = 5487)
 		: portno(port)
 	{
@@ -53,6 +64,9 @@ public:
 		client_len = sizeof(client_addr);
 	}
 
+
+	/// @brief This method is used to aceept a client once.
+	/// @return A number of client fd.
 	int accept_one()
 	{
 		int clientfd;
@@ -66,6 +80,9 @@ public:
 		return clientfd;
 	}
 
+
+	/// @brief This method is used to accept clients and perform a Service run operation. It will control the fork/wait(...) operations at the same time.
+	/// @return Nothing.
 	void run()
 	{
 		signal(SIGCHLD, SIG_IGN);

@@ -1,6 +1,17 @@
 #ifndef __CONSOLE_HPP__
 #define __CONSOLE_HPP__
 
+/// @file
+/// @author Jeremy
+/// @version 1.0
+/// @section DESCRIPTION
+///
+/// The console class is able to handle shell commands and perfom basic and extened pipe and filedump operations.
+/// It needs a parser-policy to complete this class.
+/// It uses a pipe lookup table to store the pipe needed information of shell commands.
+/// The parent of this conosle is roled a pipe fd resource manager including garbage collection of pipe.
+/// @ see parser.hpp
+
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/types.h>
@@ -18,6 +29,8 @@ enum pid_dic { CHILD = 0 };
 enum pip_dic { PIPEIN = 1, PIPEOUT = 0};
 enum res_dic { DEFAULT, PIPE, FL};
 
+
+/// @brief This data structure is used to store coresspoding fileds of each shell command including process_id, arguments_vector, pipe_target, and file_target.
 struct Command
 {
 	int proc_id;
@@ -25,16 +38,19 @@ struct Command
 	int pipe_to;
 	std::string filename;
 
+	/// @brief Initialize proc_id, pipe_to, and filename by the unused value.
 	Command() : proc_id(-1), pipe_to(0), filename()
 	{}
 };
 
+
+/// @brief
+/// The console class is able to handle shell commands and perfom basic and extened pipe and filedump operations.
 template <class Parser>
 class Console : public Parser // Policy-based design class
 {
 private:
 	std::string cmd_line;
-	std::vector<std::tuple<std::vector<std::string>, int>> cmd_result;
 	std::map<int, std::tuple<int, int>> pipe_lookup;
 	int proc_counter;
 
@@ -43,12 +59,15 @@ private:
 	typedef Command command_t;
 
 public:
+	/// @brief Initialize PATH to be "bin:.".
 	Console() : proc_counter(0)
 	{
 		setenv("PATH", "bin:.", true);
 	}
 
 
+	/// @brief This method is used to replace the default number in the file description table.
+	/// @param new_fd A new fd to be used.
 	void replace_fd(int new_fd)
 	{
 		dup2(new_fd, 0);
@@ -57,6 +76,7 @@ public:
 	}
 
 
+	/// @brief This method is used to be the generic interface of this class, which telling how a process to deal with.
 	void run()
 	{
 		std::cout << get_MOTD();
@@ -74,6 +94,11 @@ public:
 	}
 
 
+	/// @brief This method is used to parse a shell command and split it to mutiple single-command into a parsing tree.
+	/// @param str A string of input shell command.
+	/// @return A vector of single-command consists of mutiple single_command.
+	/// @see parse_tree
+	/// @see Command
 	parse_tree parse_cmd(std::string &cmd_line)
 	{
 		parse_tree result;
@@ -109,6 +134,9 @@ public:
 	}
 
 
+	/// @brief This method is used to set up the fields needed by a Command, and also verify if it is available.
+	/// @param parsed_cmd A praseing tree of shell command.
+	/// @return A vector of Command consists of available commands.
 	command_vec setup_cmd(parse_tree &parsed_cmd)
 	{
 		command_vec commands;
@@ -149,6 +177,8 @@ public:
 	}
 
 
+	/// @brief This method is used to test whether this binary can be found in PATH.
+	/// @param commands A command_vec to be tested and add the current path at the same time.
 	void verify_cmd(command_vec &commands)
 	{
 		bool is_terminated = false;
@@ -179,6 +209,9 @@ public:
 	}
 
 
+	/// @brief This method is used to execute the built-in shell commands.
+	/// @param commands A command_vec to be executed.
+	/// @return A boolean value represeted whether this Console running.
 	bool execute_builtin_cmd(command_vec &commands)
 	{
 		for (auto it = commands.begin(); it != commands.end(); ++it)
@@ -208,6 +241,9 @@ public:
 		return true;
 	}
 
+
+	/// @brief This method is used to be the template(process) to execute mutiple single-commands.
+	/// @param commands A command_vec to be executed.
 	void execute_cmd(command_vec &commands)
 	{
 		for (auto &cmd : commands)
@@ -225,6 +261,10 @@ public:
 	}
 
 
+	
+	/// @brief This method is used to translate the vector of string to vector of char* also add a NULL padding in the end of vector.
+	/// @param vec_str A vector of string
+	/// @return A vector of char* having a NULL end padding.
 	inline std::vector<char *> c_style(std::vector<std::string> &vec_str)
 	{
 		std::vector<char *> vec_charp;
@@ -237,6 +277,10 @@ public:
 		return vec_charp;
 	}
 
+	
+	/// @brief This method is used to execute the shell commands.
+	/// Request the resources needed (e.g. pipe and file) to system and deal with fork/exec/wait(...) and open/close(...) controls.
+	/// @param cmd A command_t (single-command) to be executed.
 	void execute(command_t &cmd)
 	{
 		const bool need_pipe = (cmd.pipe_to > 0);
@@ -310,6 +354,9 @@ public:
 	}
 
 
+	/// @brief This method is used to test a binary in a path is available.
+	/// @param filename The name of binary.
+	/// @param prefix A prefix path of binary.
 	inline bool is_file_exist(std::string &filename, std::string &prefix)
 	{
 		std::string testname = prefix + "/" + filename;
@@ -324,6 +371,8 @@ public:
 	}
 
 
+	/// @brief This method is used to allocate a pipe and write to pipe lookup.
+	/// @param pipe_id The id of a process.
 	inline void register_pipe(int pipe_id)
 	{
 		auto it = pipe_lookup.find(pipe_id);
@@ -344,6 +393,9 @@ public:
 	}
 
 
+	/// @brief This method is used to deallocate a pipe and remove from pipe lookup.
+	/// @brief Usually, it's called in parent proecess with proc_id which is last one to use such pipe_id.
+	/// @param pipe_id The id of a process.
 	inline void unregister_pipe(int pipe_id)
 	{
 		auto it = pipe_lookup.find(pipe_id);
@@ -357,6 +409,8 @@ public:
 	}
 
 
+	/// @brief This method is used to print a console symbol and perfom std::cin.
+	/// @return A boolean value whether get a input string.
 	inline bool get_command()
 	{
 		std::cout << "% ";
@@ -364,6 +418,8 @@ public:
 	}
 
 
+	/// @brief This method is used to get a "message of today" string.
+	/// @return A string of MOTD.
 	std::string get_MOTD()
 	{
 		std::string motd;
