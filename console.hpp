@@ -34,7 +34,6 @@ class Console : public Parser // Policy-based design class
 {
 private:
 	std::string cmd_line;
-	std::vector<std::tuple<std::vector<std::string>, int>> cmd_result;
 	std::map<int, std::tuple<int, int>> pipe_lookup;
 	int proc_counter;
 
