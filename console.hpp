@@ -53,26 +53,45 @@ private:
 	std::string cmd_line;
 	std::map<int, std::tuple<int, int>> pipe_lookup;
 	int proc_counter;
+	bool is_exit_;
+	int stdin_backup;
+	int stdout_backup;
+	int stderr_backup;
 
+protected:
 	typedef std::vector<std::vector<std::string>> parse_tree;
 	typedef std::vector<Command> command_vec;
 	typedef Command command_t;
 
 public:
 	/// @brief Initialize PATH to be "bin:.".
-	Console() : proc_counter(0)
+	Console() : proc_counter(0), is_exit_(false)
 	{
 		setenv("PATH", "bin:.", true);
+
+		stdin_backup = dup(0);
+		stdout_backup = dup(1);
+		stderr_backup = dup(2);
 	}
 
 
+	inline bool is_exit() { return is_exit_; }
+	inline void unexit() { is_exit_ = false; }
+
 	/// @brief This method is used to replace the default number in the file description table.
 	/// @param new_fd A new fd to be used.
-	void replace_fd(int new_fd)
+	inline void replace_fd(int new_fd)
 	{
 		dup2(new_fd, 0);
 		dup2(new_fd, 1);
 		dup2(new_fd, 2);
+	}
+
+	inline void undo_fd()
+	{
+		dup2(stdin_backup, 0);
+		dup2(stdout_backup, 1);
+		dup2(stderr_backup, 2);
 	}
 
 
@@ -91,6 +110,17 @@ public:
 
 			execute_cmd(commands);
 		}
+	}
+
+	void issue(std::string cmd_line)
+	{
+		auto parsed_result = parse_cmd(cmd_line);
+		auto commands = setup_cmd(parsed_result);
+
+		if (execute_builtin_cmd(commands) == false)
+			return;
+
+		execute_cmd(commands);
 	}
 
 
@@ -233,6 +263,7 @@ public:
 			}
 			else if (cmd[0] == "exit")
 			{
+				is_exit_ = true;
 				return false;
 			}
 
