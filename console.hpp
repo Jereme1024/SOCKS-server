@@ -27,6 +27,7 @@
 
 enum pid_dic { CHILD = 0 };
 enum pip_dic { PIPEIN = 1, PIPEOUT = 0};
+enum fif_dic { FIFOIN = 1, FIFOOUT = 0};
 enum res_dic { DEFAULT, PIPE, FL};
 
 
@@ -37,9 +38,11 @@ struct Command
 	std::vector<std::string> argv;
 	int pipe_to;
 	std::string filename;
+	int fifo_to;
+	int fifo_from;
 
 	/// @brief Initialize proc_id, pipe_to, and filename by the unused value.
-	Command() : proc_id(-1), pipe_to(0), filename()
+	Command() : proc_id(-1), pipe_to(0), filename(), fifo_to(0), fifo_from(0)
 	{}
 };
 
@@ -59,13 +62,16 @@ private:
 	int stderr_backup;
 
 protected:
+	int system_id;
+	std::map<std::string, std::tuple<int, int>> fifo_lookup;
+
 	typedef std::vector<std::vector<std::string>> parse_tree;
 	typedef std::vector<Command> command_vec;
 	typedef Command command_t;
 
 public:
 	/// @brief Initialize PATH to be "bin:.".
-	Console() : proc_counter(0), is_exit_(false)
+	Console() : system_id(0), proc_counter(0), is_exit_(false)
 	{
 		setenv("PATH", "bin:.", true);
 
@@ -185,6 +191,24 @@ public:
 
 				cmd.pipe_to = pipe_to;
 				argv.pop_back();
+			}
+			
+			if (argv.size() > 1)
+			{
+				if (argv[argv.size() - 1][0] == '>')
+				{
+					int fifo_to = std::atoi(argv[argv.size() - 1].c_str() + 1);
+
+					cmd.fifo_to = fifo_to;
+					argv.pop_back();
+				}
+				else if (argv[argv.size() - 1][0] == '<')
+				{
+					int fifo_from = std::atoi(argv[argv.size() - 1].c_str() + 1);
+
+					cmd.fifo_from = fifo_from;
+					argv.pop_back();
+				}
 			}
 
 			if (argv.size() > 2)
@@ -316,10 +340,21 @@ public:
 	{
 		const bool need_pipe = (cmd.pipe_to > 0);
 		const bool need_file = (cmd.filename.length() > 0);
+		const bool need_fifo_to = (cmd.fifo_to > 0);
+		const bool need_fifo_from = (cmd.fifo_from > 0);
+
+		//std::cout << "Execute cmd ing..." << std::endl;
 
 		if (need_pipe)
 		{
 			register_pipe(cmd.proc_id + cmd.pipe_to - 1);
+		}
+
+		if (need_fifo_to)
+		{
+			//std::cout << "Register fifo 1..." << std::endl;
+			register_fifo(system_id, cmd.fifo_to);
+			//std::cout << "Register fifo 2..." << std::endl;
 		}
 
 		pid_t child_pid = fork();
@@ -338,6 +373,9 @@ public:
 				const int infd = std::get<PIPEOUT>(prev->second);
 				dup2(infd, 0);
 				close(std::get<PIPEIN>(prev->second));
+
+				if (need_fifo_from)
+					close(std::get<PIPEOUT>(prev->second));
 			}
 
 			if (need_pipe)
@@ -349,7 +387,7 @@ public:
 					dup2(outfd, 1);
 					close(std::get<PIPEOUT>(next->second));
 
-					if (need_file)
+					if (need_file || need_fifo_to)
 						close(std::get<PIPEIN>(next->second));
 				}
 			}
@@ -368,6 +406,37 @@ public:
 				dup2(filefd, 1);
 			}
 
+			if (need_fifo_to)
+			{
+				std::string fifo_name = get_fifo_name(system_id, cmd.fifo_to);
+				auto it = fifo_lookup.find(fifo_name);
+
+				if (it == fifo_lookup.end())
+				{
+					std::cerr << "Fifo_in " << fifo_name << " no found in lookup? should not happend!\n";
+					exit(EXIT_FAILURE);
+				}
+
+				const int fifo_in = std::get<FIFOIN>(it->second);
+				dup2(fifo_in, 1);
+			}
+
+			if (need_fifo_from)
+			{
+				std::string fifo_name = get_fifo_name(cmd.fifo_from, system_id);
+				auto it = fifo_lookup.find(fifo_name);
+
+				if (it == fifo_lookup.end())
+				{
+					std::cerr << "Fifo_from" << fifo_name << " no found in lookup? should not happend!\n";
+					exit(EXIT_FAILURE);
+				}
+
+				const int fifo_out = std::get<FIFOOUT>(it->second);
+				dup2(fifo_out, 0);
+			}
+
+			//std::cout << "Execute cmd go..." << std::endl;
 			auto argv = c_style(cmd.argv);
 			execvp(argv[0], argv.data());
 		}
@@ -380,6 +449,11 @@ public:
 			{
 				std::cerr << "Wait child failed.\n";
 				exit(EXIT_FAILURE);
+			}
+
+			if (need_fifo_from)
+			{
+				unregister_fifo(cmd.fifo_from, system_id);
 			}
 		}
 	}
@@ -436,6 +510,62 @@ public:
 			close(std::get<PIPEOUT>(it->second));
 			
 			pipe_lookup.erase(it);
+		}
+	}
+
+	inline std::string get_fifo_name(int from, int to)
+	{
+		return std::string("/tmp/5487_" + std::to_string(from) + "_" + std::to_string(to));
+	}
+
+
+	inline void register_fifo(int from, int to)
+	{
+		const int PERMS = 0666;
+
+		std::string fifo_name = get_fifo_name(from, to);
+		int fifo_in, fifo_out;
+		
+		unlink(fifo_name.c_str());
+		if (mknod(fifo_name.c_str(), S_IFIFO | PERMS, 0) < 0)
+		{
+			if (unlink(fifo_name.c_str()) < 0)
+			{
+				std::cerr << "Unlink fifo " << fifo_name << " failed!\n";
+				perror("Error");
+				exit(EXIT_FAILURE);
+			}
+			std::cerr << "Create fifo " << fifo_name << " failed! " << strerror(errno) << "\n";
+			perror("Error");
+			exit(EXIT_FAILURE);
+		}
+
+		if ((fifo_out = open(fifo_name.c_str(), O_RDWR | O_NONBLOCK)) < 0)
+		{
+			std::cerr << "Open fifo_out " << fifo_name << " failed!\n";
+			perror("Error");
+			exit(EXIT_FAILURE);
+		}
+		fifo_in = fifo_out;
+
+		fifo_lookup[fifo_name] = std::make_tuple(fifo_in, fifo_out);	
+	}
+
+	inline void unregister_fifo(int from, int to)
+	{
+		std::string fifo_name = get_fifo_name(from, to);
+
+		auto it = fifo_lookup.find(fifo_name);
+
+		if (it != fifo_lookup.end())
+		{
+			close(std::get<FIFOIN>(it->second));
+			if (unlink(fifo_name.c_str()) < 0)
+			{
+				std::cerr << "Unlink fifo " << fifo_name << " failed!\n";
+				exit(EXIT_FAILURE);
+			}
+			fifo_lookup.erase(it);
 		}
 	}
 

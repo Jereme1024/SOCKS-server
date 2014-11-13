@@ -207,6 +207,7 @@ public:
 					now = fd;
 
 					Service::replace_fd(fd);
+					Service::system_id = fd;
 					Service::issue("setenv PATH " + users[now].env["PATH"]);
 
 					std::string cmd_line;					
@@ -218,6 +219,8 @@ public:
 
 					if (!execute_serv_builtin_cmd(commands))
 					{
+						Service::replace_fd(fd);
+						Service::system_id = fd;
 						Service::issue(cmd_line);
 					}
 
