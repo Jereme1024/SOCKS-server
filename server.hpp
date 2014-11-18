@@ -65,11 +65,11 @@ struct User
 	}
 };
 
-struct UserMan
+struct UserStatus
 {
 	User userz[MAX_CLIENT];
 
-	UserMan()
+	UserStatus()
 	{
 		for (int i = 1; i < MAX_CLIENT; i++)
 		{
@@ -81,13 +81,18 @@ struct UserMan
 	{
 		for (int i = 1; i < MAX_CLIENT; i++)
 		{
-			if (userz[i].clientfd == -1)
+			if (!is_available(i))
 			{
 				return i;
 			}
 		}
 
 		return -1;
+	}
+
+	inline bool is_available(int id)
+	{
+		return userz[id].clientfd != -1;
 	}
 
 	int add(std::string name, char ip[], unsigned short port, int clientfd)
@@ -158,7 +163,7 @@ private:
 	std::map<int, User> users;
 	int now;
 
-	UserMan uabc;
+	UserStatus uabc;
 	
 public:
 	/// @brief This method is used to initialize a server by following socket -> bind -> listen(...).
@@ -257,6 +262,15 @@ public:
 
 	void run_single_proc_mode()
 	{
+		std::vector<Service> console_list(31);
+
+		for (auto &console : console_list)
+		{
+			console.set_fifo_status(&global_fifo_status);
+			console.set_user_status(&uabc);
+		}
+
+
 		fd_set fds_act, fds_rd;
 		FD_ZERO(&fds_act);
 		FD_SET(sockfd, &fds_act);
@@ -321,28 +335,26 @@ public:
 					{
 						now = i;
 
-						Service::replace_fd(fd);
-						Service::system_id = fd;
-						Service::issue("setenv PATH " + uabc.userz[now].env["PATH"]);
+						console_list[now].replace_fd(fd);
+						console_list[now].issue("setenv PATH " + uabc.userz[now].env["PATH"]);
 
 						std::string cmd_line;					
 
 						cmd_line = receive_from(fd);
 
-						auto is_builtin = true;
-						auto parsed_result = Service::parse_cmd(cmd_line);
-						auto commands = Service::setup_cmd(parsed_result, is_builtin);
+						auto parsed_result = console_list[now].parse_cmd(cmd_line);
+						auto commands = console_list[now].setup_builtin_cmd(parsed_result);
 
 						if (!execute_serv_builtin_cmd(commands))
 						{
-							Service::replace_fd(fd);
-							Service::system_id = now;
-							Service::issue(cmd_line);
+							console_list[now].replace_fd(fd);
+							console_list[now].set_system_id(now);
+							console_list[now].issue(cmd_line);
 						}
 
 						std::cout.flush();
 
-						if (Service::is_exit())
+						if (console_list[now].is_exit())
 						{
 							std::string user_left_tip = "*** User '" + uabc.userz[now].name + "' left. ***\n";
 							uabc.remove(now);
@@ -351,7 +363,7 @@ public:
 							close(fd);
 
 							broadcast(user_left_tip);
-							Service::unexit();
+							console_list[now].unexit();
 						}
 						else
 						{

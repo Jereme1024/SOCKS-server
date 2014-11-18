@@ -47,6 +47,7 @@ struct Command
 };
 
 struct FifoStatus;
+class UserStatus;
 
 
 /// @brief
@@ -65,13 +66,13 @@ private:
 
 protected:
 	int system_id;
-	std::map<std::string, std::tuple<int, int>> fifo_lookup;
 
 	typedef std::vector<std::vector<std::string>> parse_tree;
 	typedef std::vector<Command> command_vec;
 	typedef Command command_t;
 
 	FifoStatus *fifo_status;
+	UserStatus *user_status;
 
 public:
 	/// @brief Initialize PATH to be "bin:.".
@@ -84,11 +85,15 @@ public:
 		stderr_backup = dup(2);
 	}
 
-	inline void set_fifo_status(FifoStatus *fifos)
+	inline void set_fifo_status(FifoStatus *fifost)
 	{
-		fifo_status = fifos;
+		fifo_status = fifost;
 	}
 
+	inline void set_user_status(UserStatus *userst)
+	{
+		user_status = userst;
+	}
 
 	inline bool is_exit() { return is_exit_; }
 	inline void unexit() { is_exit_ = false; }
@@ -107,6 +112,11 @@ public:
 		dup2(stdin_backup, 0);
 		dup2(stdout_backup, 1);
 		dup2(stderr_backup, 2);
+	}
+
+	inline void set_system_id(int sid)
+	{
+		system_id = sid;
 	}
 
 
@@ -182,7 +192,7 @@ public:
 	/// @brief This method is used to set up the fields needed by a Command, and also verify if it is available.
 	/// @param parsed_cmd A praseing tree of shell command.
 	/// @return A vector of Command consists of available commands.
-	command_vec setup_cmd(parse_tree &parsed_cmd, bool is_builtin = false)
+	command_vec setup_cmd(parse_tree &parsed_cmd)
 	{
 		command_vec commands;
 
@@ -234,8 +244,35 @@ public:
 			commands.push_back(std::move(cmd));
 		}
 
-		if (is_builtin == false)
-			verify_cmd(commands);
+		verify_cmd(commands);
+
+		return commands;
+	}
+
+	command_vec setup_builtin_cmd(parse_tree &parsed_cmd)
+	{
+		command_vec commands;
+
+		for (auto &argv : parsed_cmd)
+		{
+			command_t cmd;
+
+			if (argv.back().find("|") != std::string::npos)
+			{
+				int pipe_to = 1;
+				if (argv.back().length() != 1)
+				{
+					pipe_to = std::atoi(argv.back().c_str() + 1);
+				}
+
+				cmd.pipe_to = pipe_to;
+				argv.pop_back();
+			}
+			
+			cmd.argv = argv;
+
+			commands.push_back(std::move(cmd));
+		}
 
 		return commands;
 	}
@@ -364,11 +401,27 @@ public:
 		int fifo_out;
 		if (need_fifo_to)
 		{
-			fifo_in = fifo_wr(system_id, cmd.fifo_to);
+			if (user_status->is_available(cmd.fifo_to))
+			{
+				if (fifo_status->rwstatus[system_id][cmd.fifo_to] != 0)
+				{
+					fifo_in = fifo_status->writefd[system_id][cmd.fifo_to];
+				}
+				else
+				{
+					fifo_in = fifo_wr(system_id, cmd.fifo_to);
+					fifo_status->writefd[system_id][cmd.fifo_to] = fifo_in;
+					fifo_status->rwstatus[system_id][cmd.fifo_to] = 1;
+				}
 
-			fifo_status->rwstatus[system_id][cmd.fifo_to] = 1;
-			fifo_status->writefd[system_id][cmd.fifo_to] = fifo_in;
-			dup2(fifo_in, 1);
+				fifo_status->rwstatus[system_id][cmd.fifo_to] = 1;
+				dup2(fifo_in, 1);
+			}
+			else
+			{
+				std::cout << "*** Error: user #" << cmd.fifo_to << " does not exist yet. *** " << std::endl;
+				return;
+			}
 		}
 		
 		if (need_fifo_from)
@@ -467,6 +520,7 @@ public:
 			{
 				close(fifo_out);
 				std::string fifo_name = get_fifo_name(cmd.fifo_from, system_id);
+				fifo_status->rwstatus[cmd.fifo_from][system_id] = 0;
 
 				if (unlink(fifo_name.c_str()) < 0)
 				{
@@ -539,38 +593,6 @@ public:
 	}
 
 
-	inline void register_fifo(int from, int to)
-	{
-		const int PERMS = 0666;
-
-		std::string fifo_name = get_fifo_name(from, to);
-		int fifo_in, fifo_out;
-		
-		unlink(fifo_name.c_str());
-		if (mknod(fifo_name.c_str(), S_IFIFO | PERMS, 0) < 0)
-		{
-			if (unlink(fifo_name.c_str()) < 0)
-			{
-				std::cerr << "Unlink fifo " << fifo_name << " failed!\n";
-				perror("Error");
-				exit(EXIT_FAILURE);
-			}
-			std::cerr << "Create fifo " << fifo_name << " failed! " << strerror(errno) << "\n";
-			perror("Error");
-			exit(EXIT_FAILURE);
-		}
-
-		if ((fifo_out = open(fifo_name.c_str(), O_RDWR | O_NONBLOCK)) < 0)
-		{
-			std::cerr << "Open fifo_out " << fifo_name << " failed!\n";
-			perror("Error");
-			exit(EXIT_FAILURE);
-		}
-		fifo_in = fifo_out;
-
-		fifo_lookup[fifo_name] = std::make_tuple(fifo_in, fifo_out);	
-	}
-
 	inline int fifo_wr(int from, int to)
 	{
 		const int PERMS = 0666;
@@ -625,24 +647,6 @@ public:
 		}
 
 		return retval;
-	}
-
-	inline void unregister_fifo(int from, int to)
-	{
-		std::string fifo_name = get_fifo_name(from, to);
-
-		auto it = fifo_lookup.find(fifo_name);
-
-		if (it != fifo_lookup.end())
-		{
-			close(std::get<FIFOIN>(it->second));
-			if (unlink(fifo_name.c_str()) < 0)
-			{
-				std::cerr << "Unlink fifo " << fifo_name << " failed!\n";
-				exit(EXIT_FAILURE);
-			}
-			fifo_lookup.erase(it);
-		}
 	}
 
 
