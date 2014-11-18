@@ -173,7 +173,7 @@ public:
 	/// @brief This method is used to set up the fields needed by a Command, and also verify if it is available.
 	/// @param parsed_cmd A praseing tree of shell command.
 	/// @return A vector of Command consists of available commands.
-	command_vec setup_cmd(parse_tree &parsed_cmd)
+	command_vec setup_cmd(parse_tree &parsed_cmd, bool is_builtin = false)
 	{
 		command_vec commands;
 
@@ -225,7 +225,8 @@ public:
 			commands.push_back(std::move(cmd));
 		}
 
-		verify_cmd(commands);
+		if (is_builtin == false)
+			verify_cmd(commands);
 
 		return commands;
 	}
@@ -549,6 +550,53 @@ public:
 		fifo_in = fifo_out;
 
 		fifo_lookup[fifo_name] = std::make_tuple(fifo_in, fifo_out);	
+	}
+
+	inline int fifo_wr(int from, int to)
+	{
+		const int PERMS = 0666;
+
+		std::string fifo_name = get_fifo_name(from, to);
+		int retval;
+		
+		if (mknod(fifo_name.c_str(), S_IFIFO | PERMS, 0) < 0)
+		{
+			if (unlink(fifo_name.c_str()) < 0)
+			{
+				std::cerr << "Unlink fifo " << fifo_name << " failed!\n";
+				perror("Error");
+				exit(EXIT_FAILURE);
+			}
+			std::cerr << "Create fifo " << fifo_name << " failed! " << strerror(errno) << "\n";
+			perror("Error");
+			exit(EXIT_FAILURE);
+		}
+
+		if ((retval = open(fifo_name.c_str(), O_WRONLY)) < 0)
+		{
+			std::cerr << "Open fifo_out " << fifo_name << " failed!\n";
+			perror("Error");
+			exit(EXIT_FAILURE);
+		}
+
+		return retval;
+	}
+
+	inline int fifo_rd(int from, int to)
+	{
+		const int PERMS = 0666;
+
+		std::string fifo_name = get_fifo_name(from, to);
+		int retval;
+		
+		if ((retval = open(fifo_name.c_str(), O_RDONLY | O_NONBLOCK)) < 0)
+		{
+			std::cerr << "Open fifo_out " << fifo_name << " failed!\n";
+			perror("Error");
+			exit(EXIT_FAILURE);
+		}
+
+		return retval;
 	}
 
 	inline void unregister_fifo(int from, int to)

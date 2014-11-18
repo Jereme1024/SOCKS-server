@@ -29,6 +29,8 @@
 #include "fdsetfamily.hpp"
 
 const int MAX_CONNECTION = 5;
+const int MAX_CLIENT = 31;
+const int MAX_NAME = 32;
 
 
 struct User
@@ -47,6 +49,65 @@ struct User
 	}
 };
 
+struct UserMan
+{
+	User userz[MAX_CLIENT];
+
+	UserMan()
+	{
+		for (int i = 1; i < MAX_CLIENT; i++)
+		{
+			userz[i].clientfd = -1;
+		}
+	}
+
+	int get_smallest_id()
+	{
+		for (int i = 1; i < MAX_CLIENT; i++)
+		{
+			if (userz[i].clientfd == -1)
+			{
+				return i;
+			}
+		}
+
+		return -1;
+	}
+
+	int add(std::string name, char ip[], unsigned short port, int clientfd)
+	{
+		int uid = get_smallest_id();
+		if (uid < 0)
+		{
+			std::cerr << "User size is reached full!\n";
+			return -1;
+		}
+
+		//strcpy(userz[uid].name, name);
+		userz[uid].name =  name;
+		strcpy(userz[uid].ip, ip);
+		userz[uid].port = port;
+		userz[uid].clientfd = clientfd;
+
+		userz[uid].env["PATH"] = "bin:.";
+
+		// init env
+		
+		// init chat buffer
+		
+		return uid;
+	}
+
+	void remove(int uid)
+	{
+		if (userz[uid].clientfd == -1) return;
+
+		close(userz[uid].clientfd);
+		userz[uid].clientfd = -1;
+	}
+
+};
+
 
 /// @brief
 /// The server class is able to handle socket operation to build a server. It accepts a Service policy with "run" interface.
@@ -62,6 +123,8 @@ private:
 
 	std::map<int, User> users;
 	int now;
+
+	UserMan uabc;
 	
 public:
 	/// @brief This method is used to initialize a server by following socket -> bind -> listen(...).
@@ -115,7 +178,10 @@ public:
 
 		users[clientfd] = std::move(user);
 
-		return clientfd;
+		int uid = uabc.add("(no name)", user.ip, user.port, clientfd);
+
+		return uid;
+		//return clientfd;
 	}
 
 
@@ -183,69 +249,130 @@ public:
 
 			if (FD_ISSET(sockfd, &fds_rd))
 			{
-				int clientfd = accept_one();	
+				//int clientfd = accept_one();	
+				int uid = accept_one();	
+				int clientfd = uabc.userz[uid].clientfd;
 				FD_SET(clientfd, &fds_act);
 				
 				std::string motd = Service::get_MOTD();
 				send_to(clientfd, motd + "% ");
 
 				std::string new_user_tip = "*** User '(no name)' entered from ";
-				new_user_tip.append(users[clientfd].ip);
+				new_user_tip.append(uabc.userz[uid].ip);
 				new_user_tip += "/";
-				new_user_tip += std::to_string(users[clientfd].port);
+				new_user_tip += std::to_string(uabc.userz[uid].port);
 				new_user_tip += ". ***\n";
+				//send_to(clientfd, motd + "% ");
+
+				//std::string new_user_tip = "*** User '(no name)' entered from ";
+				//new_user_tip.append(users[clientfd].ip);
+				//new_user_tip += "/";
+				//new_user_tip += std::to_string(users[clientfd].port);
+				//new_user_tip += ". ***\n";
 				
 				broadcast(new_user_tip);
 			}
 
-			for (auto &user : users)
+			for (int i = 1; i < MAX_CLIENT; i++)
 			{
-				int fd = user.first;
-
-				if (fd != sockfd && FD_ISSET(fd, &fds_rd))
+				if (uabc.userz[i].clientfd != -1)
 				{
-					now = fd;
+					int fd = uabc.userz[i].clientfd;
 
-					Service::replace_fd(fd);
-					Service::system_id = fd;
-					Service::issue("setenv PATH " + users[now].env["PATH"]);
-
-					std::string cmd_line;					
-
-					cmd_line = receive_from(fd);
-
-					auto parsed_result = Service::parse_cmd(cmd_line);
-					auto commands = Service::setup_cmd(parsed_result);
-
-					if (!execute_serv_builtin_cmd(commands))
+					if (fd != sockfd && FD_ISSET(fd, &fds_rd))
 					{
+						now = i;
+
 						Service::replace_fd(fd);
 						Service::system_id = fd;
-						Service::issue(cmd_line);
+						Service::issue("setenv PATH " + uabc.userz[now].env["PATH"]);
+
+						std::string cmd_line;					
+
+						cmd_line = receive_from(fd);
+
+						auto is_builtin = true;
+						auto parsed_result = Service::parse_cmd(cmd_line);
+						auto commands = Service::setup_cmd(parsed_result, is_builtin);
+
+						if (!execute_serv_builtin_cmd(commands))
+						{
+							Service::replace_fd(fd);
+							Service::system_id = now;
+							Service::issue(cmd_line);
+						}
+
+						std::cout.flush();
+
+						if (Service::is_exit())
+						{
+							std::string user_left_tip = "*** User '" + uabc.userz[now].name + "' left. ***\n";
+							uabc.remove(now);
+
+							FD_CLR(fd, &fds_act);
+							close(fd);
+
+							broadcast(user_left_tip);
+							Service::unexit();
+						}
+						else
+						{
+							write(fd, "% ", strlen("% ") + 1);
+						}
+
+						Service::undo_fd();
 					}
-
-					std::cout.flush();
-
-					if (Service::is_exit())
-					{
-						std::string user_left_tip = "*** User '" + users[fd].name + "' left. ***\n";
-						users.erase(fd);
-
-						FD_CLR(fd, &fds_act);
-						close(fd);
-
-						broadcast(user_left_tip);
-						Service::unexit();
-					}
-					else
-					{
-						write(fd, "% ", strlen("% ") + 1);
-					}
-
-					Service::undo_fd();
 				}
-				
 			}
+
+			//for (auto &user : users)
+			//{
+			//	int fd = user.first;
+
+			//	if (fd != sockfd && FD_ISSET(fd, &fds_rd))
+			//	{
+			//		now = fd;
+
+			//		Service::replace_fd(fd);
+			//		Service::system_id = fd;
+			//		Service::issue("setenv PATH " + users[now].env["PATH"]);
+
+			//		std::string cmd_line;					
+
+			//		cmd_line = receive_from(fd);
+
+			//		auto parsed_result = Service::parse_cmd(cmd_line);
+			//		auto commands = Service::setup_cmd(parsed_result);
+
+			//		if (!execute_serv_builtin_cmd(commands))
+			//		{
+			//			Service::replace_fd(fd);
+			//			Service::system_id = fd;
+			//			Service::issue(cmd_line);
+			//		}
+
+			//		std::cout.flush();
+
+			//		if (Service::is_exit())
+			//		{
+			//			std::string user_left_tip = "*** User '" + users[fd].name + "' left. ***\n";
+			//			users.erase(fd);
+
+			//			FD_CLR(fd, &fds_act);
+			//			close(fd);
+
+			//			broadcast(user_left_tip);
+			//			Service::unexit();
+			//		}
+			//		else
+			//		{
+			//			write(fd, "% ", strlen("% ") + 1);
+			//		}
+
+			//		Service::undo_fd();
+			//	}
+			//	
+			//}
 		}
 	}
 
@@ -268,29 +395,52 @@ public:
 
 	void broadcast(std::string message)
 	{
-		for (auto &user : users)
+		//for (auto &user : users)
+		//{
+		//	if (user.first == 0) continue;
+		//	send_to(user.first, message);
+		//}
+
+		for (int i = 1; i < MAX_CLIENT; i++)
 		{
-			if (user.first == 0) continue;
-			send_to(user.first, message);
+			if (uabc.userz[i].clientfd != -1)
+			{
+				send_to(uabc.userz[i].clientfd, message);
+			}
 		}
 	}
 
 	std::string query_who(int me)
 	{
 		std::string info = "<ID>	<nickname>	<IP/port>	<indicate me>\n";
-		for (auto &user : users)
-		{
-			if (user.first == 0) continue;
+		//for (auto &user : users)
+		//{
+		//	if (user.first == 0) continue;
 
-			info += std::to_string(user.first) + "\t";
-			info += user.second.name + "\t";
-			info += user.second.ip;
-			info += "/" + std::to_string(user.second.port);
-			
-			if (user.first == me)
-				info += "\t<-me\n";
-			else
-				info += "\n";
+		//	info += std::to_string(user.first) + "\t";
+		//	info += user.second.name + "\t";
+		//	info += user.second.ip;
+		//	info += "/" + std::to_string(user.second.port);
+		//	
+		//	if (user.first == me)
+		//		info += "\t<-me\n";
+		//	else
+		//		info += "\n";
+		//}
+		for (int i = 1; i < MAX_CLIENT; i++)
+		{
+			if (uabc.userz[i].clientfd != -1)
+			{
+				info += std::to_string(i) + "\t";
+				info += uabc.userz[i].name + "\t";
+				info += uabc.userz[i].ip;
+				info += "/" + std::to_string(uabc.userz[i].port);
+				
+				if (i == me)
+					info += "\t<-me\n";
+				else
+					info += "\n";
+			}
 		}
 
 		return info;
@@ -302,19 +452,20 @@ public:
 		{
 			auto &cmd  = it->argv;
 			
-			// XXX Testing region XXX
-			Service::undo_fd();
-			std::cout << "command: ";
-			for (auto &s : cmd)
-			{	
-				std::cout << s << " ";
-			}
-			std::cout << std::endl;
-			// XXX Testing region XXX
+			//// XXX Testing region XXX
+			//Service::undo_fd();
+			//std::cout << "command: ";
+			//for (auto &s : cmd)
+			//{	
+			//	std::cout << s << " ";
+			//}
+			//std::cout << std::endl;
+			//// XXX Testing region XXX
 			
 			if (cmd[0] == "who")
 			{
-				send_to(now, query_who(now));
+				//send_to(now, query_who(now));
+				send_to(uabc.userz[now].clientfd, query_who(now));
 
 				commands.erase(it);
 
@@ -323,24 +474,28 @@ public:
 			else if (cmd[0] == "tell")
 			{
 				int target = std::atoi(cmd[1].c_str());
-				bool is_user_exist = (target != 0 && users.find(target) != users.end());
+				//bool is_user_exist = (target != 0 && users.find(target) != users.end());
+				bool is_user_exist = (target != 0 && uabc.userz[target].clientfd != -1);
 
 				std::string message;
 				if (is_user_exist)
 				{
-					message = "*** " + users[now].name + " told you ***: ";
+					//message = "*** " + users[now].name + " told you ***: ";
+					message = "*** " + uabc.userz[now].name + " told you ***: ";
 					message += cmd[2];
 					for (int i = 3; i < cmd.size(); i++)
 					{
 						message += (" " + cmd[i]);
 					}
 					message += "\n";
-					send_to(target, message);
+					//send_to(target, message);
+					send_to(uabc.userz[target].clientfd, message);
 				}
 				else
 				{
 					message = "*** Error: user #" + cmd[1] + " does not exist yet. ***\n";
-					send_to(now, message);
+					//send_to(now, message);
+					send_to(uabc.userz[now].clientfd, message);
 				}
 
 				commands.erase(it);
@@ -355,7 +510,8 @@ public:
 					message += (" " + cmd[i]);
 				}
 
-				message = "*** " + users[now].name + " yelled ***: " + message + "\n";
+				//message = "*** " + users[now].name + " yelled ***: " + message + "\n";
+				message = "*** " + uabc.userz[now].name + " yelled ***: " + message + "\n";
 				broadcast(message);
 
 				commands.erase(it);
@@ -365,9 +521,17 @@ public:
 			else if (cmd[0] == "name")
 			{
 				bool is_name_duplicated = false;
-				for (auto &user : users)
+				//for (auto &user : users)
+				//{
+				//	if (cmd[1] == user.second.name)
+				//	{
+				//		is_name_duplicated = true;
+				//		break;
+				//	}
+				//}
+				for (int i = 1; i < MAX_CLIENT; i++)
 				{
-					if (cmd[1] == user.second.name)
+					if (uabc.userz[i].clientfd != -1 && cmd[1] == uabc.userz[i].name)
 					{
 						is_name_duplicated = true;
 						break;
@@ -377,16 +541,22 @@ public:
 				if (is_name_duplicated)
 				{
 					std::string message = "*** User '" + cmd[1] + "' already exists. ***\n";
-					send_to(now, message);
+					send_to(uabc.userz[now].clientfd, message);
 				}
 				else
 				{
-					users[now].name = cmd[1];
+					//users[now].name = cmd[1];
+					//std::string message = "*** User from ";
+					//message.append(users[now].ip);
+					//message.append("/");
+					//message.append(std::to_string(users[now].port));
+					//message.append(" is named '" + users[now].name + "'. ***\n");
+					uabc.userz[now].name = cmd[1];
 					std::string message = "*** User from ";
-					message.append(users[now].ip);
+					message.append(uabc.userz[now].ip);
 					message.append("/");
-					message.append(std::to_string(users[now].port));
-					message.append(" is named '" + users[now].name + "'. ***\n");
+					message.append(std::to_string(uabc.userz[now].port));
+					message.append(" is named '" + uabc.userz[now].name + "'. ***\n");
 
 					broadcast(message);
 				}
@@ -399,8 +569,9 @@ public:
 			{
 				if (cmd.size() == 2)
 				{
-					std::string message = cmd[1] + "=" + users[now].env[cmd[1]] + "\n";
-					send_to(now, message);
+					//std::string message = cmd[1] + "=" + users[now].env[cmd[1]] + "\n";
+					std::string message = cmd[1] + "=" + uabc.userz[now].env[cmd[1]] + "\n";
+					send_to(uabc.userz[now].clientfd, message);
 				}
 
 				commands.erase(it);
@@ -409,13 +580,14 @@ public:
 			}
 			else if (cmd[0] == "setenv")
 			{
-				Service::undo_fd();
+				//Service::undo_fd();
 
-				std::cerr << "cmdsize: " << cmd.size() << "\n";
+				//std::cerr << "cmdsize: " << cmd.size() << "\n";
 				if (cmd.size() == 3)
 				{
 					setenv(cmd[1].c_str(), cmd[2].c_str(), true);
-					users[now].env[cmd[1]] = cmd[2];
+					//users[now].env[cmd[1]] = cmd[2];
+					uabc.userz[now].env[cmd[1]] = cmd[2];
 				}
 
 				commands.erase(it);
