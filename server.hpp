@@ -32,6 +32,22 @@ const int MAX_CONNECTION = 5;
 const int MAX_CLIENT = 31;
 const int MAX_NAME = 32;
 
+struct FifoStatus
+{
+	short rwstatus[31][31];
+	int writefd[31][31];
+
+	FifoStatus()
+	{
+		for (int i = 0; i < 31; i++)
+		{
+			for (int j = 0; j < 31; j++)
+			{
+				rwstatus[i][j] = 0;
+			}
+		}
+	}
+};
 
 struct User
 {
@@ -107,6 +123,24 @@ struct UserMan
 	}
 
 };
+
+
+FifoStatus global_fifo_status;
+
+void collect_fifo_garbage(int sig)
+{
+	for (int i = 0; i < 31; i++)
+	{
+		for (int j = 0; j < 31; j++)
+		{
+			if (global_fifo_status.rwstatus[i][j] == 2)
+			{
+				close(global_fifo_status.writefd[i][j]);
+				global_fifo_status.rwstatus[i][j] = 0;
+			}
+		}
+	}
+}
 
 
 /// @brief
@@ -236,6 +270,10 @@ public:
 		User user;
 		user.clientfd = 0;
 		users[0] = std::move(user);
+
+		Service::set_fifo_status(&global_fifo_status);
+
+		signal(SIGUSR1, collect_fifo_garbage);
 
 		while (true)
 		{

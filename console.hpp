@@ -46,6 +46,8 @@ struct Command
 	{}
 };
 
+struct FifoStatus;
+
 
 /// @brief
 /// The console class is able to handle shell commands and perfom basic and extened pipe and filedump operations.
@@ -69,6 +71,8 @@ protected:
 	typedef std::vector<Command> command_vec;
 	typedef Command command_t;
 
+	FifoStatus *fifo_status;
+
 public:
 	/// @brief Initialize PATH to be "bin:.".
 	Console() : system_id(0), proc_counter(0), is_exit_(false)
@@ -78,6 +82,11 @@ public:
 		stdin_backup = dup(0);
 		stdout_backup = dup(1);
 		stderr_backup = dup(2);
+	}
+
+	inline void set_fifo_status(FifoStatus *fifos)
+	{
+		fifo_status = fifos;
 	}
 
 
@@ -351,11 +360,33 @@ public:
 			register_pipe(cmd.proc_id + cmd.pipe_to - 1);
 		}
 
+		int fifo_in;
+		int fifo_out;
 		if (need_fifo_to)
 		{
-			//std::cout << "Register fifo 1..." << std::endl;
-			register_fifo(system_id, cmd.fifo_to);
-			//std::cout << "Register fifo 2..." << std::endl;
+			fifo_in = fifo_wr(system_id, cmd.fifo_to);
+
+			fifo_status->rwstatus[system_id][cmd.fifo_to] = 1;
+			fifo_status->writefd[system_id][cmd.fifo_to] = fifo_in;
+			dup2(fifo_in, 1);
+		}
+		
+		if (need_fifo_from)
+		{
+			if (fifo_status->rwstatus[cmd.fifo_from][system_id] != 1)
+			{
+				std::cout << "*** Error: the pipe #" << cmd.fifo_from << "->#" << system_id << " does not exist yet. *** " << std::endl;
+
+				unregister_pipe(cmd.proc_id - 1);
+
+				return;
+			}
+
+			fifo_out = fifo_rd(cmd.fifo_from, system_id);
+
+			fifo_status->rwstatus[cmd.fifo_from][system_id] = 2;
+
+			kill(0, SIGUSR1); // close the input side of FIFO
 		}
 
 		pid_t child_pid = fork();
@@ -384,12 +415,17 @@ public:
 				auto next = pipe_lookup.find(cmd.proc_id + cmd.pipe_to - 1);
 				if (next != pipe_lookup.end())
 				{
-					const int outfd = std::get<PIPEIN>(next->second);
-					dup2(outfd, 1);
-					close(std::get<PIPEOUT>(next->second));
-
 					if (need_file || need_fifo_to)
+					{
 						close(std::get<PIPEIN>(next->second));
+						close(std::get<PIPEOUT>(next->second));
+					}
+					else
+					{
+						const int outfd = std::get<PIPEIN>(next->second);
+						dup2(outfd, 1);
+						close(std::get<PIPEOUT>(next->second));
+					}
 				}
 			}
 
@@ -407,33 +443,8 @@ public:
 				dup2(filefd, 1);
 			}
 
-			if (need_fifo_to)
-			{
-				std::string fifo_name = get_fifo_name(system_id, cmd.fifo_to);
-				auto it = fifo_lookup.find(fifo_name);
-
-				if (it == fifo_lookup.end())
-				{
-					std::cerr << "Fifo_in " << fifo_name << " no found in lookup? should not happend!\n";
-					exit(EXIT_FAILURE);
-				}
-
-				const int fifo_in = std::get<FIFOIN>(it->second);
-				dup2(fifo_in, 1);
-			}
-
 			if (need_fifo_from)
 			{
-				std::string fifo_name = get_fifo_name(cmd.fifo_from, system_id);
-				auto it = fifo_lookup.find(fifo_name);
-
-				if (it == fifo_lookup.end())
-				{
-					std::cerr << "Fifo_from" << fifo_name << " no found in lookup? should not happend!\n";
-					exit(EXIT_FAILURE);
-				}
-
-				const int fifo_out = std::get<FIFOOUT>(it->second);
 				dup2(fifo_out, 0);
 			}
 
@@ -454,7 +465,15 @@ public:
 
 			if (need_fifo_from)
 			{
-				unregister_fifo(cmd.fifo_from, system_id);
+				close(fifo_out);
+				std::string fifo_name = get_fifo_name(cmd.fifo_from, system_id);
+
+				if (unlink(fifo_name.c_str()) < 0)
+				{
+					std::cerr << "Unlink fifo " << fifo_name << " failed!\n";
+					perror("Error");
+					exit(EXIT_FAILURE);
+				}
 			}
 		}
 	}
@@ -568,6 +587,15 @@ public:
 				exit(EXIT_FAILURE);
 			}
 			std::cerr << "Create fifo " << fifo_name << " failed! " << strerror(errno) << "\n";
+			perror("Error");
+			exit(EXIT_FAILURE);
+		}
+
+		int tmp;
+
+		if ((tmp = open(fifo_name.c_str(), O_RDONLY | O_NONBLOCK)) < 0)
+		{
+			std::cerr << "Open fifo_out " << fifo_name << " failed!\n";
 			perror("Error");
 			exit(EXIT_FAILURE);
 		}
