@@ -26,8 +26,6 @@
 #include <vector>
 #include <arpa/inet.h>
 
-#include "fdsetfamily.hpp"
-
 const int MAX_CONNECTION = 5;
 const int MAX_CLIENT = 31;
 const int MAX_NAME = 32;
@@ -163,6 +161,8 @@ private:
 	int now;
 
 	UserStatus user_status;
+
+	int stdin_backup, stdout_backup, stderr_backup;
 	
 public:
 	/// @brief This method is used to initialize a server by following socket -> bind -> listen(...).
@@ -258,33 +258,35 @@ public:
 		}
 	}
 
+	void UNDO_FD()
+	{
+		dup2(stdin_backup, 0);
+		dup2(stdout_backup, 1);
+		dup2(stderr_backup, 2);
+
+	}
+
 	void run_single_proc_mode()
 	{
-		std::vector<Service> console_list(31);
+		stdin_backup = dup(0);
+		stdout_backup = dup(1);
+		stderr_backup = dup(2);
 
-		for (auto &console : console_list)
+		std::vector<Service *> console_list(MAX_CLIENT);
+
+		for (auto &c : console_list)
 		{
-			console.set_fifo_status(&global_fifo_status);
-			console.set_user_status(&user_status);
+			c = new Service();
 		}
-
 
 		fd_set fds_act, fds_rd;
 		FD_ZERO(&fds_act);
 		FD_SET(sockfd, &fds_act);
 		int nfds = getdtablesize();
 
-		char string[1024] = "Hello world!\n";
-
-		const int MAX_BUFFER = 1024;
-		char buffer[MAX_BUFFER];
-
-		User user;
-		user.clientfd = 0;
-
-		Service::set_fifo_status(&global_fifo_status);
-
 		signal(SIGUSR1, collect_fifo_garbage);
+
+		Service::backup_fd();
 
 		while (true)
 		{
@@ -298,7 +300,6 @@ public:
 
 			if (FD_ISSET(sockfd, &fds_rd))
 			{
-				//int clientfd = accept_one();	
 				int uid = accept_one();	
 				int clientfd = user_status.users[uid].clientfd;
 				FD_SET(clientfd, &fds_act);
@@ -311,7 +312,11 @@ public:
 				new_user_tip += "/";
 				new_user_tip += std::to_string(user_status.users[uid].port);
 				new_user_tip += ". ***\n";
-				
+
+				console_list[uid] = new Service();
+				console_list[uid]->set_fifo_status(&global_fifo_status);
+				console_list[uid]->set_user_status(&user_status);
+
 				broadcast(new_user_tip);
 			}
 
@@ -325,26 +330,26 @@ public:
 					{
 						now = i;
 
-						console_list[now].replace_fd(fd);
-						console_list[now].issue("setenv PATH " + user_status.users[now].env["PATH"]);
+						console_list[now]->replace_fd(fd);
+						console_list[now]->issue("setenv PATH " + user_status.users[now].env["PATH"]);
 
 						std::string cmd_line;					
 
 						cmd_line = receive_from(fd);
 
-						auto parsed_result = console_list[now].parse_cmd(cmd_line);
-						auto commands = console_list[now].setup_builtin_cmd(parsed_result);
+						auto parsed_result = console_list[now]->parse_cmd(cmd_line);
+						auto commands = console_list[now]->setup_builtin_cmd(parsed_result);
 
 						if (!execute_serv_builtin_cmd(commands))
 						{
-							console_list[now].replace_fd(fd);
-							console_list[now].set_system_id(now);
-							console_list[now].issue(cmd_line);
+							console_list[now]->replace_fd(fd);
+							console_list[now]->set_system_id(now);
+							console_list[now]->issue(cmd_line);
 						}
 
 						std::cout.flush();
 
-						if (console_list[now].is_exit())
+						if (console_list[now]->is_exit())
 						{
 							std::string user_left_tip = "*** User '" + user_status.users[now].name + "' left. ***\n";
 							user_status.remove(now);
@@ -353,7 +358,8 @@ public:
 							close(fd);
 
 							broadcast(user_left_tip);
-							console_list[now].unexit();
+
+							delete console_list[now];
 						}
 						else
 						{

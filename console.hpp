@@ -63,6 +63,7 @@ private:
 	int stdin_backup;
 	int stdout_backup;
 	int stderr_backup;
+	bool is_fd_backup;
 
 protected:
 	int system_id;
@@ -76,9 +77,14 @@ protected:
 
 public:
 	/// @brief Initialize PATH to be "bin:.".
-	Console() : system_id(0), proc_counter(0), is_exit_(false)
+	Console() : system_id(0), proc_counter(0), is_exit_(false), is_fd_backup(false)
 	{
 		setenv("PATH", "bin:.", true);
+	}
+
+	inline void backup_fd()
+	{
+		is_fd_backup = true;
 
 		stdin_backup = dup(0);
 		stdout_backup = dup(1);
@@ -96,7 +102,17 @@ public:
 	}
 
 	inline bool is_exit() { return is_exit_; }
-	inline void unexit() { is_exit_ = false; }
+	void unexit()
+	{
+		is_exit_ = false;
+		proc_counter = 0;
+		for (auto it = pipe_lookup.begin(); it != pipe_lookup.end(); it++)
+		{
+			unregister_pipe__(it);
+		}
+
+		pipe_lookup.clear();
+	}
 
 	/// @brief This method is used to replace the default number in the file description table.
 	/// @param new_fd A new fd to be used.
@@ -109,6 +125,9 @@ public:
 
 	inline void undo_fd()
 	{
+		if (is_fd_backup == false)
+			return;
+
 		dup2(stdin_backup, 0);
 		dup2(stdout_backup, 1);
 		dup2(stderr_backup, 2);
@@ -580,11 +599,15 @@ public:
 		auto it = pipe_lookup.find(pipe_id);
 		if (it != pipe_lookup.end())
 		{
-			close(std::get<PIPEIN>(it->second));
-			close(std::get<PIPEOUT>(it->second));
-			
+			unregister_pipe__(it);
 			pipe_lookup.erase(it);
 		}
+	}
+
+	inline void unregister_pipe__(decltype(pipe_lookup.begin()) it)
+	{
+		close(std::get<PIPEIN>(it->second));
+		close(std::get<PIPEOUT>(it->second));
 	}
 
 	inline std::string get_fifo_name(int from, int to)
@@ -634,8 +657,6 @@ public:
 
 	inline int fifo_rd(int from, int to)
 	{
-		const int PERMS = 0666;
-
 		std::string fifo_name = get_fifo_name(from, to);
 		int retval;
 		
@@ -668,6 +689,16 @@ public:
 		motd += "** Welcome to the information server. **\n";
 		motd += "****************************************\n";
 		return motd;
+	}
+
+	~Console()
+	{
+		for (auto it = pipe_lookup.begin(); it != pipe_lookup.end(); it++)
+		{
+			unregister_pipe__(it);
+		}
+
+		undo_fd();
 	}
 };
 
