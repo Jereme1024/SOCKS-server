@@ -347,6 +347,12 @@ public:
 							console_list[now]->issue(cmd_line);
 						}
 
+						if (console_list[now]->log != "")
+						{
+							broadcast(console_list[now]->log);
+							console_list[now]->log = "";
+						}
+
 						std::cout.flush();
 
 						if (console_list[now]->is_exit())

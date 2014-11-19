@@ -76,6 +76,8 @@ protected:
 	UserStatus *user_status;
 
 public:
+	std::string log;
+
 	/// @brief Initialize PATH to be "bin:.".
 	Console() : system_id(0), proc_counter(0), is_exit_(false), is_fd_backup(false)
 	{
@@ -156,8 +158,10 @@ public:
 		}
 	}
 
-	void issue(std::string cmd_line)
+	void issue(std::string cmd_line_in)
 	{
+		cmd_line = cmd_line_in;
+
 		auto parsed_result = parse_cmd(cmd_line);
 		auto commands = setup_cmd(parsed_result);
 
@@ -367,6 +371,8 @@ public:
 	/// @param commands A command_vec to be executed.
 	void execute_cmd(command_vec &commands)
 	{
+		log = "";
+
 		for (auto &cmd : commands)
 		{
 			if (cmd.proc_id != -1)
@@ -409,7 +415,6 @@ public:
 		const bool need_fifo_to = (cmd.fifo_to > 0);
 		const bool need_fifo_from = (cmd.fifo_from > 0);
 
-		//std::cout << "Execute cmd ing..." << std::endl;
 
 		if (need_pipe)
 		{
@@ -435,10 +440,19 @@ public:
 
 				fifo_status->rwstatus[system_id][cmd.fifo_to] = 1;
 				dup2(fifo_in, 1);
+
+				std::string me = user_status->users[system_id].name;
+				std::string me_id = std::to_string(system_id);
+				std::string who = user_status->users[cmd.fifo_to].name;
+				std::string who_id = std::to_string(cmd.fifo_to);
+
+
+				cmd_line.resize(cmd_line.length() - 1); // Escape the '\r' symbol
+				log = "*** " + me + " (#" + me_id + ") just piped '" + cmd_line + "' to " + who + " (#" + who_id + ") ***\n";
 			}
 			else
 			{
-				std::cout << "*** Error: user #" << cmd.fifo_to << " does not exist yet. *** " << std::endl;
+				std::cout << "*** Error: user #" << cmd.fifo_to << " does not exist yet. ***" << std::endl;
 				return;
 			}
 		}
@@ -447,12 +461,21 @@ public:
 		{
 			if (fifo_status->rwstatus[cmd.fifo_from][system_id] != 1)
 			{
-				std::cout << "*** Error: the pipe #" << cmd.fifo_from << "->#" << system_id << " does not exist yet. *** " << std::endl;
+				std::cout << "*** Error: the pipe #" << cmd.fifo_from << "->#" << system_id << " does not exist yet. ***" << std::endl;
 
 				unregister_pipe(cmd.proc_id - 1);
 
 				return;
 			}
+
+			std::string me = user_status->users[system_id].name;
+			std::string me_id = std::to_string(system_id);
+			std::string who = user_status->users[cmd.fifo_from].name;
+			std::string who_id = std::to_string(cmd.fifo_from);
+			
+
+			cmd_line.resize(cmd_line.length() - 1); // Escape the '\r' symbol
+			log = "*** " + me + " (#" + me_id + ") just received from " + who + " (#" + who_id + ") by '" + cmd_line + "' ***\n";
 
 			fifo_out = fifo_rd(cmd.fifo_from, system_id);
 
