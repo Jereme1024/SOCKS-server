@@ -358,6 +358,17 @@ public:
 			else if (cmd[0] == "exit")
 			{
 				is_exit_ = true;
+
+				// 31 is a magic number!!! (MAX_CLIENT)
+				for (int i = 0; i < 31; i++)
+				{
+					if (fifo_status->rwstatus[system_id][i] != 0)
+						remove_fifo(system_id, i);
+
+					if (fifo_status->rwstatus[i][system_id] != 0)
+						remove_fifo(i, system_id);
+				}
+
 				return false;
 			}
 
@@ -565,16 +576,22 @@ public:
 			if (need_fifo_from)
 			{
 				close(fifo_out);
-				std::string fifo_name = get_fifo_name(cmd.fifo_from, system_id);
-				fifo_status->rwstatus[cmd.fifo_from][system_id] = 0;
 
-				if (unlink(fifo_name.c_str()) < 0)
-				{
-					std::cerr << "Unlink fifo " << fifo_name << " failed!\n";
-					perror("Error");
-					exit(EXIT_FAILURE);
-				}
+				remove_fifo(cmd.fifo_from, system_id);
 			}
+		}
+	}
+
+	void remove_fifo(int from, int to)
+	{
+		std::string fifo_name = get_fifo_name(from, to);
+		fifo_status->rwstatus[from][to] = 0;
+
+		if (unlink(fifo_name.c_str()) < 0)
+		{
+			std::cerr << "Unlink fifo " << fifo_name << " failed!\n";
+			perror("Error");
+			exit(EXIT_FAILURE);
 		}
 	}
 
