@@ -429,7 +429,9 @@ public:
 			{
 				if (fifo_status->rwstatus[system_id][cmd.fifo_to] != 0)
 				{
-					fifo_in = fifo_status->writefd[system_id][cmd.fifo_to];
+					//fifo_in = fifo_status->writefd[system_id][cmd.fifo_to];
+					std::cout << "*** Error: the pipe #" << system_id << "->#" << cmd.fifo_to << " already exists. ***" << std::endl;
+					return;
 				}
 				else
 				{
@@ -447,7 +449,8 @@ public:
 				std::string who_id = std::to_string(cmd.fifo_to);
 
 
-				cmd_line.resize(cmd_line.length() - 1); // Escape the '\r' symbol
+				// Escape the '\r' symbol
+				fix_return_symbol(cmd_line);
 				log = "*** " + me + " (#" + me_id + ") just piped '" + cmd_line + "' to " + who + " (#" + who_id + ") ***\n";
 			}
 			else
@@ -474,7 +477,8 @@ public:
 			std::string who_id = std::to_string(cmd.fifo_from);
 			
 
-			cmd_line.resize(cmd_line.length() - 1); // Escape the '\r' symbol
+			// Escape the '\r' symbol
+			fix_return_symbol(cmd_line);
 			log = "*** " + me + " (#" + me_id + ") just received from " + who + " (#" + who_id + ") by '" + cmd_line + "' ***\n";
 
 			fifo_out = fifo_rd(cmd.fifo_from, system_id);
@@ -712,6 +716,12 @@ public:
 		motd += "** Welcome to the information server. **\n";
 		motd += "****************************************\n";
 		return motd;
+	}
+
+	void fix_return_symbol(std::string &str)
+	{
+		if (str[str.length() - 1] == '\r')
+			str.resize(str.length() - 1);
 	}
 
 	~Console()
