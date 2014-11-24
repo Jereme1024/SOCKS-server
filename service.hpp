@@ -9,6 +9,7 @@
 ///// The ServiceWrapper is a adapter for Server having common interface e.g. enter(), routine(), is_leave(), leave().
 ///// There are some data structures and ServiceWrappers of RAS for Project 2.
 
+#include <semaphore.h>
 #include "shm.hpp"
 
 struct FifoStatus
@@ -517,6 +518,13 @@ public:
 };
 
 
+const char SEM_USER[] = "SEM_USER";
+const char SEM_CHAT[] = "SEM_CHAT";
+const char SEM_FIFO[] = "SEM_FIFO";
+sem_t *mutex_user;
+sem_t *mutex_chat;
+sem_t *mutex_fifo;
+
 template <class Console>
 class ServiceWrapperMultiple : public Console
 {
@@ -545,6 +553,8 @@ public:
 
 	static void receive_message(int sig)
 	{
+		sem_wait(mutex_chat);
+
 		ServiceWrapperMultiple<Console> *inst =  ServiceWrapperMultiple<Console>::get_instance();
 
 		for (int i = 0; i < 10; i++)
@@ -560,10 +570,14 @@ public:
 			}
 		}
 		std::cout.flush();
+
+		sem_post(mutex_chat);
 	}
 
 	static void collect_fifo_garbage(int sig)
 	{
+		// This function will called by execute(...) that is locked before, so need not lock again!
+
 		ServiceWrapperMultiple<Console> *inst =  ServiceWrapperMultiple<Console>::get_instance();
 		const int uid = inst->system_id;
 
@@ -603,6 +617,33 @@ public:
 		chat_status = new_shm<ChatStatus>(shm_id_chat, SHMKEY_CHAT);
 		fifo_status = new_shm<FifoStatus>(shm_id_fifo, SHMKEY_FIFO);
 
+		sem_unlink(SEM_USER);
+		sem_unlink(SEM_CHAT);
+		sem_unlink(SEM_FIFO);
+
+		mutex_user = sem_open(SEM_USER,O_CREAT,0644,1);
+		if(mutex_user == SEM_FAILED)
+		{
+			perror("unable to create semaphore");
+			sem_unlink(SEM_USER);
+			exit(-1);
+		}
+		mutex_chat = sem_open(SEM_CHAT,O_CREAT,0644,1);
+		if(mutex_chat == SEM_FAILED)
+		{
+			perror("unable to create semaphore");
+			sem_unlink(SEM_CHAT);
+			exit(-1);
+		}
+		mutex_fifo = sem_open(SEM_FIFO,O_CREAT,0644,1);
+		if(mutex_fifo == SEM_FAILED)
+		{
+			perror("unable to create semaphore");
+			sem_unlink(SEM_FIFO);
+			exit(-1);
+		}
+
+
 		Console::user_status = user_status;
 		Console::fifo_status = fifo_status;
 
@@ -617,6 +658,13 @@ public:
 		shmctl(shm_id_chat, IPC_RMID, NULL);
 		shmdt(fifo_status);
 		shmctl(shm_id_fifo, IPC_RMID, NULL);
+
+		sem_close(mutex_user);
+		sem_unlink(SEM_USER);
+		sem_close(mutex_chat);
+		sem_unlink(SEM_CHAT);
+		sem_close(mutex_fifo);
+		sem_unlink(SEM_FIFO);
 	}
 
 	int get_uid()
@@ -644,8 +692,10 @@ public:
 	void enter(int clientfd, sockaddr_in client_addr)
 	{
 		auto do_nothing = [](int n){};
+		auto do_exit = [](int n){exit(EXIT_SUCCESS);};
 
 		signal(SIGCHLD, do_nothing);
+		signal(SIGINT, do_exit);
 		signal(SIGUSR1, ServiceWrapperMultiple<Console>::collect_fifo_garbage);
 		signal(SIGUSR2, ServiceWrapperMultiple<Console>::receive_message);
 
@@ -657,6 +707,8 @@ public:
 		user.clientfd = clientfd;
 		strcpy(user.name,"(no name)");
 
+		sem_wait(mutex_user);
+
 		int uid = user_status->add("(no name)", user.ip, user.port, clientfd);
 
 		set_uid(uid);
@@ -666,6 +718,8 @@ public:
 		welcome_msg += "/";
 		welcome_msg += std::to_string(user_status->users[uid].port);
 		welcome_msg += ". ***\n";
+
+		sem_post(mutex_user);
 
 		std::cout << Console::get_MOTD();
 		broadcast(welcome_msg);
@@ -681,6 +735,9 @@ public:
 
 			auto parsed_result = Console::parse_cmd(cmd_line);
 			auto commands = Console::setup_builtin_cmd(parsed_result);
+
+			sem_wait(mutex_user);
+			sem_wait(mutex_fifo);
 
 			if (!ServerCmd.execute_serv_builtin_cmd(commands))
 			{
@@ -705,6 +762,9 @@ public:
 				}
 			}
 
+			sem_post(mutex_fifo);
+			sem_post(mutex_user);
+
 			if (is_leave())
 			{
 				leave(my_fd);
@@ -720,6 +780,8 @@ public:
 
 	void leave(int my_fd)
 	{
+		sem_wait(mutex_user);
+
 		int me = get_uid();
 		std::string user_left_tip = "*** User '";
 		user_left_tip.append(user_status->users[me].name);
@@ -728,6 +790,8 @@ public:
 		broadcast(user_left_tip);
 
 		user_status->remove(me);
+
+		sem_post(mutex_user);
 
 		close(my_fd);
 	}
@@ -751,6 +815,8 @@ public:
 			return;
 		}
 
+		sem_wait(mutex_chat);
+
 		const int from = get_uid();
 
 		for (int i = 0; i < 10; i++)
@@ -759,11 +825,14 @@ public:
 			{
 				chat_status->who[id].chat_buffer[i].from = from;
 				strcpy(chat_status->who[id].chat_buffer[i].content, message.c_str());
-				kill(0, SIGUSR2); 
 
 				break;
 			}
 		}
+
+		sem_post(mutex_chat);
+		
+		kill(0, SIGUSR2); 
 	}
 
 
