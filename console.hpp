@@ -696,6 +696,8 @@ public:
 			exit(EXIT_FAILURE);
 		}
 
+		close(tmp);
+
 		return retval;
 	}
 
