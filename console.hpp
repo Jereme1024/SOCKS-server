@@ -56,7 +56,6 @@ template <class Parser>
 class Console : public Parser // Policy-based design class
 {
 private:
-	std::string cmd_line;
 	std::map<int, std::tuple<int, int>> pipe_lookup;
 	int proc_counter;
 	bool is_exit_;
@@ -66,21 +65,24 @@ private:
 	bool is_fd_backup;
 
 protected:
-	int system_id;
-
-	typedef std::vector<std::vector<std::string>> parse_tree;
-	typedef std::vector<Command> command_vec;
-	typedef Command command_t;
+	std::string cmd_line;
 
 	FifoStatus *fifo_status;
 	UserStatus *user_status;
 
 public:
+	typedef std::vector<std::vector<std::string>> parse_tree;
+	typedef std::vector<Command> command_vec;
+	typedef Command command_t;
+
+	int system_id;
+	std::map<std::string, std::string> env;
 	std::string log;
 
 	/// @brief Initialize PATH to be "bin:.".
 	Console() : system_id(0), proc_counter(0), is_exit_(false), is_fd_backup(false)
 	{
+		env["PATH"] = "bin:.";
 		setenv("PATH", "bin:.", true);
 	}
 
@@ -142,7 +144,7 @@ public:
 
 
 	/// @brief This method is used to be the generic interface of this class, which telling how a process to deal with.
-	void run()
+	void run_()
 	{
 		std::cout << get_MOTD();
 
@@ -158,7 +160,8 @@ public:
 		}
 	}
 
-	void issue(std::string cmd_line_in)
+
+	command_vec issue(std::string cmd_line_in)
 	{
 		cmd_line = cmd_line_in;
 
@@ -166,9 +169,12 @@ public:
 		auto commands = setup_cmd(parsed_result);
 
 		if (execute_builtin_cmd(commands) == false)
-			return;
+		{
+			commands.clear();
+			return commands;
+		}
 
-		execute_cmd(commands);
+		return commands;
 	}
 
 
@@ -398,7 +404,6 @@ public:
 		}
 	}
 
-
 	
 	/// @brief This method is used to translate the vector of string to vector of char* also add a NULL padding in the end of vector.
 	/// @param vec_str A vector of string
@@ -440,7 +445,6 @@ public:
 			{
 				if (fifo_status->rwstatus[system_id][cmd.fifo_to] != 0)
 				{
-					//fifo_in = fifo_status->writefd[system_id][cmd.fifo_to];
 					std::cout << "*** Error: the pipe #" << system_id << "->#" << cmd.fifo_to << " already exists. ***" << std::endl;
 					return;
 				}
@@ -452,7 +456,6 @@ public:
 				}
 
 				fifo_status->rwstatus[system_id][cmd.fifo_to] = 1;
-				dup2(fifo_in, 1);
 
 				std::string me = user_status->users[system_id].name;
 				std::string me_id = std::to_string(system_id);
@@ -556,6 +559,11 @@ public:
 			if (need_fifo_from)
 			{
 				dup2(fifo_out, 0);
+			}
+
+			if (need_fifo_to)
+			{
+				dup2(fifo_in, 1);
 			}
 
 			//std::cout << "Execute cmd go..." << std::endl;
@@ -696,7 +704,9 @@ public:
 			exit(EXIT_FAILURE);
 		}
 
-		close(tmp);
+		fifo_status->readfd[from][to] = tmp;
+
+		//close(tmp);
 
 		return retval;
 	}
