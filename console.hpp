@@ -259,6 +259,24 @@ public:
 				}
 			}
 
+			if (argv.size() > 1)
+			{
+				if (argv[argv.size() - 1][0] == '>')
+				{
+					int fifo_to = std::atoi(argv[argv.size() - 1].c_str() + 1);
+
+					cmd.fifo_to = fifo_to;
+					argv.pop_back();
+				}
+				else if (argv[argv.size() - 1][0] == '<')
+				{
+					int fifo_from = std::atoi(argv[argv.size() - 1].c_str() + 1);
+
+					cmd.fifo_from = fifo_from;
+					argv.pop_back();
+				}
+			}
+
 			if (argv.size() > 2)
 			{
 				if (argv[argv.size() - 2] == ">")
@@ -439,6 +457,35 @@ public:
 
 		int fifo_in;
 		int fifo_out;
+		if (need_fifo_from)
+		{
+			if (fifo_status->rwstatus[cmd.fifo_from][system_id] != 1)
+			{
+				std::cout << "*** Error: the pipe #" << cmd.fifo_from << "->#" << system_id << " does not exist yet. ***" << std::endl;
+
+				unregister_pipe(cmd.proc_id - 1);
+
+				return;
+			}
+
+			std::string me = user_status->users[system_id].name;
+			std::string me_id = std::to_string(system_id);
+			std::string who = user_status->users[cmd.fifo_from].name;
+			std::string who_id = std::to_string(cmd.fifo_from);
+			
+
+			// Escape the '\r' symbol
+			fix_return_symbol(cmd_line);
+			log += "*** " + me + " (#" + me_id + ") just received from " + who + " (#" + who_id + ") by '" + cmd_line + "' ***\n";
+
+			fifo_out = fifo_rd(cmd.fifo_from, system_id);
+
+			fifo_status->rwstatus[cmd.fifo_from][system_id] = 2;
+
+			kill(0, SIGUSR1); // close the input side of FIFO
+		}
+
+
 		if (need_fifo_to)
 		{
 			if (user_status->is_available(cmd.fifo_to))
@@ -465,7 +512,7 @@ public:
 
 				// Escape the '\r' symbol
 				fix_return_symbol(cmd_line);
-				log = "*** " + me + " (#" + me_id + ") just piped '" + cmd_line + "' to " + who + " (#" + who_id + ") ***\n";
+				log += "*** " + me + " (#" + me_id + ") just piped '" + cmd_line + "' to " + who + " (#" + who_id + ") ***\n";
 			}
 			else
 			{
@@ -474,33 +521,6 @@ public:
 			}
 		}
 		
-		if (need_fifo_from)
-		{
-			if (fifo_status->rwstatus[cmd.fifo_from][system_id] != 1)
-			{
-				std::cout << "*** Error: the pipe #" << cmd.fifo_from << "->#" << system_id << " does not exist yet. ***" << std::endl;
-
-				unregister_pipe(cmd.proc_id - 1);
-
-				return;
-			}
-
-			std::string me = user_status->users[system_id].name;
-			std::string me_id = std::to_string(system_id);
-			std::string who = user_status->users[cmd.fifo_from].name;
-			std::string who_id = std::to_string(cmd.fifo_from);
-			
-
-			// Escape the '\r' symbol
-			fix_return_symbol(cmd_line);
-			log = "*** " + me + " (#" + me_id + ") just received from " + who + " (#" + who_id + ") by '" + cmd_line + "' ***\n";
-
-			fifo_out = fifo_rd(cmd.fifo_from, system_id);
-
-			fifo_status->rwstatus[cmd.fifo_from][system_id] = 2;
-
-			kill(0, SIGUSR1); // close the input side of FIFO
-		}
 
 		pid_t child_pid = fork();
 		if (child_pid < 0)
