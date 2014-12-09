@@ -6,12 +6,11 @@
 #include "server.hpp"
 #include "parser.hpp"
 
-#include <cstdio>
-
 struct HtmlMeta
 {
 	std::string script_name;
 	std::string script_path;
+	std::string script_type;
 	std::string query_string;
 	std::string request_method;
 
@@ -22,6 +21,7 @@ struct HtmlMeta
 
 	void parse(std::string &str)
 	{
+		// "GET /what.file?param1=val1&param2=val2...&paramN=valN HTTP/1.1"
 		auto by_blank = SimpleParser::split(str);
 		auto by_question = SimpleParser::split(by_blank[1], "?");
 		auto by_and = SimpleParser::split(by_question[1], "&");
@@ -29,6 +29,7 @@ struct HtmlMeta
 		request_method = by_blank[0];
 		script_name = by_question[0];
 		script_path = "." + by_question[0];
+		script_type = script_name.c_str() + script_name.find_last_of(".") + 1;
 		query_string = by_question[1];
 	}
 };
@@ -36,15 +37,6 @@ struct HtmlMeta
 class HttpdService
 {
 public:
-	void block_io(int fd, char is_block)
-	{
-		if (ioctl(fd, FIONBIO, (char *)&is_block))
-		{
-			perror("ioctl");
-			exit(-1);
-		}
-	}
-
 	void enter(int clientfd, sockaddr_in &client_addr)
 	{
 		dup2(clientfd, 0);
@@ -58,45 +50,35 @@ public:
 		std::string input;
 		std::vector<std::string> meta;
 
-		int i = 0;
 		while (std::getline(std::cin, input))
 		{
-			block_io(clientfd, false);
-			meta.push_back(input);
-		}
-		block_io(clientfd, true);
+			if (input.size() <= 1) break;
 
-		if (meta.size() == 0)
-		{
-			std::cout << "Content-type: text/html\n\n";
-			std::cout << "500 Something wrong!\n";
+			meta.push_back(input);
 		}
 
 		auto html_meta = HtmlMeta(meta[0]);
 
-		auto dot_pos = html_meta.script_name.find_last_of(".");
-		std::string file_type = html_meta.script_name.c_str() + dot_pos + 1;
-
 		if (!is_file_exist(html_meta.script_path))
 		{
-			std::cout << "Content-type: text/html\n\n";
-			std::cout << "404 Not found!\n";
+			std::cout << "Content-type: text/html; charset=utf-8\n\n";
+			std::cout << "<h1>404 Not found! ヾ(`・ω・´)</h1>\n";
 		}
 		else
 		{
-			if (file_type == "cgi")
+			if (html_meta.script_type == "cgi")
 			{
 				open_cgi(html_meta);
 			}
-			else if (file_type == "html")
+			else if (html_meta.script_type == "html")
 			{
 				std::cout << "Content-type: text/html\n\n";
 				open_html(html_meta);
 			}
 			else
 			{
-				std::cout << "Content-type: text/html\n\n";
-				std::cout << "403 Access deny!\n";
+				std::cout << "Content-type: text/html; charset=utf-8\n\n";
+				std::cout << "<h1>403 Access deny! ヾ(`・ω・´)</h1>\n";
 			}
 		}
 	}
@@ -150,14 +132,12 @@ public:
 
 	bool is_leave(int clientfd)
 	{
-		return true;
+		return false;
 	}
 
 	void leave(int clientfd)
 	{
 	}
-
-	
 };
 
 int main()
