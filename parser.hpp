@@ -19,7 +19,7 @@ public:
 	/// @brief This method is used to split a string by whiespace, tab, and EOL.
 	/// @param str The string to be split.
 	/// @return A vector of string consists of cutting substrings.
-	std::vector<std::string> split(std::string str)
+	static std::vector<std::string> split(std::string str)
 	{
 		return split_default(str);
 	}
@@ -29,7 +29,7 @@ public:
 	/// @param str The string to be split.
 	/// @param separator The separator for target string.
 	/// @return A vector of string consists of cutting substrings.
-	std::vector<std::string> split(std::string str, std::string separator)
+	static std::vector<std::string> split(std::string str, std::string separator)
 	{
 		// The whiespace, tab and endline will be cut too.
 		for (int i = 0; i < str.length(); i++)
@@ -47,7 +47,7 @@ public:
 	/// @brief This method is used to split a string by using a std::cin-like method.
 	/// @param str The string to be split.
 	/// @return A vector of string consists of cutting substrings.
-	inline std::vector<std::string> split_default(std::string &str)
+	static inline std::vector<std::string> split_default(std::string &str)
 	{
 		std::stringstream ss(str);
 		std::vector<std::string> result;
