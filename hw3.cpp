@@ -195,12 +195,12 @@ public:
 
 		while (true)
 		{
-    		memcpy(&rfds, &afds, sizeof(fd_set));
+			memcpy(&rfds, &afds, sizeof(fd_set));
 
-    		if(select(nfds, &rfds, NULL, NULL, NULL) < 0)
-    		{
+			if(select(nfds, &rfds, NULL, NULL, NULL) < 0)
+			{
 				perror("select");
-    		}
+			}
 
 			for (auto &client : clients)
 			{
