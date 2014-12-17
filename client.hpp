@@ -37,17 +37,22 @@ const int MAX_NAME = 32;
 template <class Service>
 class Client : public Service
 {
-protected:
+public:
 	int sockfd; // listen fd
 	int portno;
+	char *ip;
 	struct sockaddr_in server_addr;
 	struct hostent *server;
+
+	int connect_cnt;
 
 public:
 	/// @brief This method is used to initialize a server by following socket -> bind -> listen(...).
 	/// @param port A port number with a default value 5487.
-	Client(char *ip, int port = 5487)
-		: portno(port)
+	Client(char *ip_in, int port = 5487)
+		: ip(ip_in)
+		, portno(port)
+		, connect_cnt(10)
 	{
 		sockfd = socket(AF_INET, SOCK_STREAM, 0);
 		if (sockfd < 0)
@@ -67,10 +72,54 @@ public:
 		server_addr.sin_addr = *((struct in_addr *)server->h_addr);
 		server_addr.sin_port = htons(portno);
 
-		if (connect(sockfd, (sockaddr *) &server_addr, sizeof(server_addr)) < 0)
+	}
+
+	int connect_noblocking()
+	{
+		// Non-blocking setting
+		int flags = fcntl(sockfd, F_GETFL, 0);
+		fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+
+		int ret = ::connect(sockfd, (sockaddr *) &server_addr, sizeof(server_addr));
+
+		if (ret >= 0)
+		{
+			Service::enter(sockfd, server_addr);
+		}
+		else
+		{
+			connect_cnt--;
+		}
+
+		return ret;
+	}
+
+	inline bool is_connect_timeout()
+	{
+		return connect_cnt <= 0;
+	}
+
+	void connect_once()
+	{
+		if (::connect(sockfd, (sockaddr *) &server_addr, sizeof(server_addr)) < 0)
 		{
 			std::cerr << "Connect failed.\n";
 			exit(EXIT_FAILURE);
+		}
+
+		Service::enter(sockfd, server_addr);
+	}
+
+	void connect_persistly()
+	{
+		// Non-blocking setting
+		int flags = fcntl(sockfd, F_GETFL, 0);
+		fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+
+		while (::connect(sockfd, (sockaddr *) &server_addr, sizeof(server_addr)) < 0)
+		{
+			std::cerr << "Connect failed. Going to retry in 1 second\n";
+			sleep(1);
 		}
 
 		Service::enter(sockfd, server_addr);
@@ -81,6 +130,11 @@ public:
 	void run()
 	{
 		Service::routine(sockfd);
+	}
+
+	~Client()
+	{
+		std::cerr << "Client with fd " << sockfd << " close.\n";
 	}
 };
 #endif
