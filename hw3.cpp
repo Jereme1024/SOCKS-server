@@ -186,9 +186,11 @@ public:
 				int port_ = std::atoi(params[port].c_str());
 
 				clients.push_back(std::make_shared<Client<BatchExec>>(ip_, port_));
-				//clients.back()->connect_noblocking();
 				clients.back()->set_batch(params[batch]);
 				clients.back()->id = (i - 1);
+				clients.back()->connect_noblocking();
+
+				FD_SET(clients.back()->sockfd, &afds);
 			}
 		}
 	}
@@ -198,59 +200,38 @@ public:
 		int connection = clients.size();
 		int nfds = getdtablesize();
 
-		timeval timeout;
-		timeout.tv_sec = 1;
-		timeout.tv_usec = 0;
-
 		show_html_top();
 
 		while (true)
 		{
-			for (auto it = clients.begin(); it != clients.end(); it++)
-			{
-				auto &client = *it;
-				if (!client->is_connected())
-				{
-					std::cerr << "!connect\n";
-					const int status = client->connect_noblocking();
-					if (status >= 0)
-					{
-						const int fd = client->sockfd;
-						FD_SET(fd, &afds);
-					}
-					else
-					{
-						if (client->is_connect_timeout())
-						{
-							connection--;
-							clients.erase(it);
-						}
-					}
-				}
-			}
 
     		memcpy(&rfds, &afds, sizeof(fd_set));
 
-    		if(select(nfds, &rfds, NULL, NULL, &timeout) < 0)
+    		if(select(nfds, &rfds, NULL, NULL, NULL) < 0)
     		{
 				perror("select");
     		}
 
 			for (auto &client : clients)
 			{
-				if (FD_ISSET(client->serverfd, &rfds))
+				if (FD_ISSET(client->sockfd, &rfds))
 				{
-					std::cerr << "connect\n";
-
-					client->recv_msg();
-					client->send_cmd();
-
-					if (client->is_exit())
+					if (client->is_connected())
 					{
-						FD_CLR(client->serverfd, &afds);
-						close(client->serverfd);
+						client->recv_msg();
+						client->send_cmd();
 
-						connection--;
+						if (client->is_exit())
+						{
+							FD_CLR(client->serverfd, &afds);
+							close(client->serverfd);
+
+							connection--;
+						}
+					}
+					else
+					{
+						client->connect_noblocking();
 					}
 				}
 			}
@@ -260,6 +241,11 @@ public:
 		}
 
 		show_html_bottom();
+	}
+
+	void is_leave()
+	{
+
 	}
 
 	void show_html_top()

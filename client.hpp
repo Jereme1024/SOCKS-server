@@ -44,7 +44,7 @@ public:
 	struct sockaddr_in server_addr;
 	struct hostent *server;
 
-	int connect_cnt;
+	int try_connect_cnt;
 
 public:
 	/// @brief This method is used to initialize a server by following socket -> bind -> listen(...).
@@ -52,7 +52,7 @@ public:
 	Client(char *ip_in, int port = 5487)
 		: ip(ip_in)
 		, portno(port)
-		, connect_cnt(10)
+		, try_connect_cnt(10)
 	{
 		sockfd = socket(AF_INET, SOCK_STREAM, 0);
 		if (sockfd < 0)
@@ -88,7 +88,7 @@ public:
 		}
 		else
 		{
-			connect_cnt--;
+			try_connect_cnt--;
 		}
 
 		return ret;
@@ -96,7 +96,7 @@ public:
 
 	inline bool is_connect_timeout()
 	{
-		return connect_cnt <= 0;
+		return try_connect_cnt <= 0;
 	}
 
 	void connect_once()
