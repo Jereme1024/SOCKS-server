@@ -29,10 +29,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
-const int MAX_CONNECTION = 5;
-const int MAX_CLIENT = 31;
-const int MAX_NAME = 32;
-
+const int MAX_TRY = 50;
 
 template <class Service>
 class Client : public Service
@@ -52,7 +49,7 @@ public:
 	Client(char *ip_in, int port = 5487)
 		: ip(ip_in)
 		, portno(port)
-		, try_connect_cnt(10)
+		, try_connect_cnt(MAX_TRY)
 	{
 		sockfd = socket(AF_INET, SOCK_STREAM, 0);
 		if (sockfd < 0)

@@ -144,7 +144,7 @@ class Hw3Cgi
 {
 public:
 	typedef std::shared_ptr<Client<BatchExec>> ClientPtr;
-	std::vector<ClientPtr> clients;
+	std::map<int, ClientPtr> clients;
 	std::map<std::string, std::string> params;
 	fd_set rfds, afds;
 
@@ -185,19 +185,21 @@ public:
 				char *ip_ = (char *)params[ip].c_str();
 				int port_ = std::atoi(params[port].c_str());
 
-				clients.push_back(std::make_shared<Client<BatchExec>>(ip_, port_));
-				clients.back()->set_batch(params[batch]);
-				clients.back()->id = (i - 1);
-				clients.back()->connect_noblocking();
+				auto client = std::make_shared<Client<BatchExec>>(ip_, port_);
+				const int sockfd = client->sockfd;
+				clients[sockfd] = client;
 
-				FD_SET(clients.back()->sockfd, &afds);
+				client->set_batch(params[batch]);
+				client->id = (i - 1);
+				client->connect_noblocking();
+
+				FD_SET(sockfd, &afds);
 			}
 		}
 	}
 
 	void main()
 	{
-		int connection = clients.size();
 		int nfds = getdtablesize();
 
 		show_html_top();
@@ -212,8 +214,11 @@ public:
 				perror("select");
     		}
 
-			for (auto &client : clients)
+			for (auto &c : clients)
 			{
+				const int sockfd = c.first;
+				auto client = c.second;
+
 				if (FD_ISSET(client->sockfd, &rfds))
 				{
 					if (client->is_connected())
@@ -223,10 +228,10 @@ public:
 
 						if (client->is_exit())
 						{
-							FD_CLR(client->serverfd, &afds);
-							close(client->serverfd);
+							FD_CLR(client->sockfd, &afds);
+							close(client->sockfd);
 
-							connection--;
+							clients.erase(sockfd);
 						}
 					}
 					else
@@ -236,16 +241,16 @@ public:
 				}
 			}
 
-			if (connection <= 0)
+			if (is_finish())
 				break;
 		}
 
 		show_html_bottom();
 	}
 
-	void is_leave()
+	inline bool is_finish()
 	{
-
+		return (clients.size() == 0);
 	}
 
 	void show_html_top()
@@ -262,19 +267,18 @@ public:
 			<tr>
 		)";
 
+		std::vector<char *> is_used(MAXUSER, NULL);
+
+		for (auto &client : clients)
+		{
+			is_used[client.second->id] = client.second->ip;
+		}
+
 		for (int i = 0; i < MAXUSER; i++)
 		{
-			bool is_printed = false;
-			for (auto &client : clients)
-			{
-				if (client->id == i)
-				{
-					std::cout << "<td>" << client->ip << "</td>";
-					is_printed = true;
-					break;
-				}
-			}
-			if (!is_printed)
+			if (is_used[i] != NULL)
+				std::cout << "<td>" << is_used[i] << "</td>";
+			else
 				std::cout << "<td></td>";
 		}
 		
