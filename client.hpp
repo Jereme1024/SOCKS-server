@@ -68,7 +68,6 @@ public:
 		server_addr.sin_family = AF_INET;
 		server_addr.sin_addr = *((struct in_addr *)server->h_addr);
 		server_addr.sin_port = htons(portno);
-
 	}
 
 	int connect_noblocking()
@@ -103,8 +102,19 @@ public:
 			std::cerr << "Connect failed.\n";
 			exit(EXIT_FAILURE);
 		}
+	}
 
-		Service::enter(sockfd, server_addr);
+	void connect_persistly()
+	{
+		// Non-blocking setting
+		int flags = fcntl(sockfd, F_GETFL, 0);
+		fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+
+		while (connect(sockfd, (sockaddr *) &server_addr, sizeof(server_addr)) < 0)
+		{
+			std::cerr << "Connect failed. Going to retry in 1 second\n";
+			sleep(1);
+		}
 	}
 
 	void connect_persistly()

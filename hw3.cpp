@@ -206,7 +206,6 @@ public:
 
 		while (true)
 		{
-
     		memcpy(&rfds, &afds, sizeof(fd_set));
 
     		if(select(nfds, &rfds, NULL, NULL, NULL) < 0)
