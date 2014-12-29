@@ -43,6 +43,7 @@ public:
 		dup2(clientfd, 1);
 
 		std::cout << "HTTP/1.1 200 OK\n";
+		std::cout.flush();
 	}
 
 	void routine(int clientfd)
@@ -72,13 +73,12 @@ public:
 			}
 			else if (html_meta.script_type == "html")
 			{
-				std::cout << "Content-type: text/html\n\n";
 				open_html(html_meta);
 			}
 			else
 			{
 				std::cout << "Content-type: text/html; charset=utf-8\n\n";
-				std::cout << "<h1>403 Access deny! ヾ(`・ω・´)</h1>\n";
+				std::cout << "<h1>403 Forbidden! ヾ(`・ω・´)</h1>\n";
 			}
 		}
 	}
@@ -93,6 +93,8 @@ public:
 	{
 		std::fstream html_context(html_meta.script_path);
 		std::string text;
+
+		std::cout << "Content-type: text/html\n\n";
 
 		while (html_context >> text)
 		{

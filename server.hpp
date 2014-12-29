@@ -29,7 +29,7 @@
 #include <vector>
 #include <arpa/inet.h>
 
-const int MAX_CONNECTION = 5;
+const int MAX_CONNECTION = 31;
 const int MAX_CLIENT = 31;
 const int MAX_NAME = 32;
 

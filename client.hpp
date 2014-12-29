@@ -77,14 +77,16 @@ public:
 		fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
 
 		int ret = ::connect(sockfd, (sockaddr *) &server_addr, sizeof(server_addr));
-
 		if (ret >= 0)
 		{
 			Service::enter(sockfd, server_addr);
 		}
 		else
 		{
-			try_connect_cnt--;
+			if (errno == ECONNREFUSED)
+			{
+				try_connect_cnt = 0;
+			}
 		}
 
 		return ret;
@@ -101,19 +103,6 @@ public:
 		{
 			std::cerr << "Connect failed.\n";
 			exit(EXIT_FAILURE);
-		}
-	}
-
-	void connect_persistly()
-	{
-		// Non-blocking setting
-		int flags = fcntl(sockfd, F_GETFL, 0);
-		fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
-
-		while (connect(sockfd, (sockaddr *) &server_addr, sizeof(server_addr)) < 0)
-		{
-			std::cerr << "Connect failed. Going to retry in 1 second\n";
-			sleep(1);
 		}
 	}
 

@@ -18,13 +18,13 @@ class BatchExec
 public:
 	std::fstream batch;
 	bool is_writeable;
-	bool is_exit_flag;
+	int is_exit_flag;
 	int serverfd;
 	int id;
 
 public:
 	BatchExec()
-		: is_writeable(false), is_exit_flag(false), serverfd(-1), id(0)
+		: is_writeable(false), is_exit_flag(0), serverfd(-1), id(0)
 	{}
 
 	int contain_prompt ( char* line )
@@ -47,7 +47,7 @@ public:
 		char buf[3000],*tmp;
 		int len,i;
 
-		len=read(from,buf,sizeof(buf)-1);
+		len=recv(from,buf,sizeof(buf)-1, 0);
 		if(len < 0) return -1;
 
 		buf[len] = 0;
@@ -76,13 +76,17 @@ public:
 			print_html(buffer, border);
 
 			buffer.append("\n");
-			write(serverfd, buffer.c_str(), buffer.length());
+			//std::cerr << "buffer: " << buffer << std::endl;
+			//std::cerr << "buffer.size: " << buffer.length() << std::endl;
+			send(serverfd, buffer.c_str(), buffer.length(), 0);
 			is_writeable = false;
 
 			if (buffer.find("exit") != std::string::npos)
 			{
-				is_exit_flag = true;
+				is_exit_flag = 1;
 			}
+
+			sleep(1);
 		}
 	}
 
@@ -95,6 +99,8 @@ public:
 	inline void print_html(std::string plaintext, const bool is_border = false)
 	{
 		remove_return_symbol(plaintext);
+
+		std::cerr << "PH: " << plaintext << std::endl;
 
 		std::cout << "<script>document.all['m" << id <<"'].innerHTML += \"";
 		if (is_border) std::cout << "<b>";
@@ -114,7 +120,7 @@ public:
 		if (!batch)
 		{
 			std::cerr << "Batch file open failed! " << filename << std::endl;
-			exit(-1);
+			//exit(-1);
 		}
 	}
 
@@ -140,7 +146,7 @@ public:
 	}
 };
 
-class Hw3Cgi
+class RbsCgi
 {
 public:
 	typedef std::shared_ptr<Client<BatchExec>> ClientPtr;
@@ -148,7 +154,7 @@ public:
 	std::map<std::string, std::string> params;
 	fd_set rfds, afds;
 
-	Hw3Cgi()
+	RbsCgi()
 	{
 		FD_ZERO(&rfds);
 		FD_ZERO(&afds);
@@ -227,15 +233,25 @@ public:
 
 						if (client->is_exit())
 						{
-							FD_CLR(client->sockfd, &afds);
-							close(client->sockfd);
-
-							clients.erase(sockfd);
+							if (client->is_exit_flag == 1)
+							{	client->is_exit_flag = 2;
+								continue;
+							}
+							else if (client->is_exit_flag == 2)
+							{
+								client->recv_msg();
+								disconnect(client->sockfd);
+							}
 						}
 					}
 					else
 					{
 						client->connect_noblocking();
+						if (client->is_connect_timeout())
+						{
+							client->print_html("Connect timeout!", true);
+							disconnect(client->sockfd);
+						}
 					}
 				}
 			}
@@ -247,8 +263,16 @@ public:
 		show_html_bottom();
 	}
 
+	void disconnect(int clientfd)
+	{
+		FD_CLR(clientfd, &afds);
+		close(clientfd);
+		clients.erase(clientfd);
+	}
+
 	inline bool is_finish()
 	{
+		//std::cerr << "SZ: " << clients.size() << "\n";
 		return (clients.size() == 0);
 	}
 
@@ -314,7 +338,7 @@ int main(int argc, char *argv[])
 
 	std::cout << "Content-Type: text/html\n\n";
 
-	Hw3Cgi hw3cgi;
+	RbsCgi hw3cgi;
 	
 	hw3cgi.set_query_string(getenv("QUERY_STRING"));
 	hw3cgi.establish_connection();
