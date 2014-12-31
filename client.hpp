@@ -51,6 +51,24 @@ public:
 		, portno(port)
 		, try_connect_cnt(MAX_TRY)
 	{
+		setup(ip_in, port);
+	}
+
+	Client()
+		: try_connect_cnt(MAX_TRY)
+	{}
+
+
+	inline void setup(char *ip_in, int port = 5487)
+	{
+		ip = ip_in;
+		portno = port;
+
+		setup();
+	}
+
+	inline void setup()
+	{
 		sockfd = socket(AF_INET, SOCK_STREAM, 0);
 		if (sockfd < 0)
 		{
@@ -133,4 +151,6 @@ public:
 		std::cerr << "Client with fd " << sockfd << " close.\n";
 	}
 };
+
+
 #endif
