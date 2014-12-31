@@ -3,10 +3,13 @@
 
 #include <cstring>
 #include <cstdio>
+#include <ctime>
 #include <sys/time.h>
 
 #include "server.hpp"
 #include "client.hpp"
+
+enum CD { CONNECT = 1, BIND = 2 };
 
 struct Socks4Request
 {
@@ -57,11 +60,19 @@ struct Socks4Reply
 		, cd(FAILED)
 	{}
 
-	void success(unsigned int ip, unsigned short port)
+	inline void success()
+	{
+		cd = GRANTED;
+	}
+
+	inline void set_ip(unsigned int ip)
 	{
 		dst_ip = ip;
+	}
+
+	inline void set_port(unsigned short port)
+	{
 		dst_port = port;
-		cd = GRANTED;
 	}
 };
 
@@ -71,12 +82,14 @@ class SocksServerService
 public:
 	sockaddr_in source_addr, destination_addr;
 	int source_fd, destination_fd;
+	bool is_bind_flag;
 
 	timeval default_timeout;
 
 	SocksServerService()
+		: is_bind_flag(false)
 	{ 
-		default_timeout.tv_sec = 3;
+		default_timeout.tv_sec = 120;
 		default_timeout.tv_usec = 0;
 
 		signal(SIGCHLD, SIG_IGN);
@@ -104,14 +117,33 @@ public:
 		Socks4Request socks4request;
 		socks4request.set(buffer, buffer_len);
 
+		print_ip(destination_addr.sin_addr);
+
+		if (socks4request.cd == CONNECT)
+		{
+			std::cerr << "Do connect!\n";
+			do_connect(socks4request);
+		}
+		else if (socks4request.cd == BIND)
+		{
+			std::cerr << "Do bind!\n";
+			do_bind(socks4request);
+		}
+
+	}
+
+	inline void do_connect(Socks4Request &socks4request)
+	{
+		Socks4Reply socks4reply;
+		socks4reply.set_ip(socks4request.dst_ip);
+		socks4reply.set_port(socks4request.dst_port);
+
+		destination_fd = socket(AF_INET, SOCK_STREAM, 0);
+
 		memset(&destination_addr, '0', sizeof(destination_addr));
 		destination_addr.sin_family = AF_INET;
 		destination_addr.sin_addr.s_addr = htonl(socks4request.dst_ip);
 		destination_addr.sin_port = htons(socks4request.dst_port);
-
-		print_ip(destination_addr.sin_addr);
-
-		destination_fd = socket(AF_INET, SOCK_STREAM, 0);
 
 		if (connect(destination_fd, (sockaddr *) &destination_addr, sizeof(destination_addr)) < 0)
 		{
@@ -119,15 +151,93 @@ public:
 			std::cerr << "Connect failed.\n";
 			exit(EXIT_FAILURE);
 		}
+		else
+		{
+			socks4reply.success();
+		}
+
+		send(source_fd, &socks4reply, sizeof(socks4reply), 0);
+	}
+
+	inline void do_bind(Socks4Request &socks4request)
+	{
+		std::srand(std::time(0));
+
+		is_bind_flag = true;
 
 		Socks4Reply socks4reply;
-		socks4reply.success(socks4request.dst_ip, socks4request.dst_port);
-		send(source_fd, &socks4reply, sizeof(socks4reply), 0);
+		socks4reply.set_ip(socks4request.dst_ip);
+		socks4reply.set_port(socks4request.dst_port);
+
+		destination_fd = source_fd;
+		destination_addr = source_addr;
+
+		source_fd = socket(AF_INET, SOCK_STREAM, 0);
+
+		int rand_port = std::rand() % 20480 + 1024;
+
+		memset(&source_addr, '0', sizeof(source_addr));
+		source_addr.sin_family = AF_INET;
+		source_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+		source_addr.sin_port = htons(rand_port);
+
+		while (bind(source_fd, (sockaddr *) &source_addr, sizeof(source_addr)) < 0)
+		{
+			std::cerr << "Server bind failed.\n";
+			rand_port = std::rand() % 20480 + 1024;
+			std::cerr << "Try to bind port " << rand_port << "...\n";
+			source_addr.sin_port = htons(rand_port);
+		}
+
+
+		listen(source_fd, MAX_CONNECTION);
+
+		socks4reply.set_port(source_addr.sin_port);
+		socks4reply.set_ip(source_addr.sin_addr.s_addr);
+		socks4reply.success();
+		send(destination_fd, &socks4reply, sizeof(socks4reply), 0);
+	}
+
+	inline bool is_bind_mode()
+	{
+		return is_bind_flag;
 	}
 
 	void routine(int clientfd)
 	{
 		std::cerr << "Transfering!\n";
+		
+		Socks4Reply socks4reply;
+
+		if (is_bind_mode())
+		{
+			socks4reply.set_port(source_addr.sin_port);
+			socks4reply.set_ip(source_addr.sin_addr.s_addr);
+			socks4reply.success();
+
+			int clientfd;
+			sockaddr_in client_addr;
+			socklen_t client_len = sizeof(client_addr);
+
+			std::cerr << "Time to accept!\n";
+
+			if ((clientfd = accept(source_fd, (sockaddr *) &client_addr, &client_len)) < 0)
+			{
+				perror("Bind mode accept");
+				exit(EXIT_FAILURE);
+				return;
+			}
+
+			close(source_fd);
+			source_fd = clientfd;
+			source_addr = client_addr;
+
+			std::cerr << "Accept done!\n";
+
+			send(destination_fd, &socks4reply, sizeof(socks4reply), 0);
+
+			std::cerr << "Accept done!\n";
+		}
 
 		fd_set fds_act, fds_rd;
 		FD_ZERO(&fds_act);
@@ -175,15 +285,15 @@ public:
 
 	bool proxy(int from, int to)
 	{
-		const int buffer_max = 1024;
+		const int buffer_max = 4096;
 		unsigned char buffer[buffer_max];
 		ssize_t recv_len, send_len;
 
-		do
-		{
-			recv_len = recv(from, buffer, buffer_max, 0);
-			send_len = send(to, buffer, recv_len, 0);
-		} while (recv_len >= buffer_max);
+		recv_len = recv(from, buffer, buffer_max, 0);
+		send_len = send(to, buffer, recv_len, 0);
+
+		if (recv_len != 0)
+		std::cerr << from << "-" << to << " " << "recv: " << recv_len << "\n";
 
 		if (recv_len <= 0) return false;
 
