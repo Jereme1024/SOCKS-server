@@ -51,7 +51,7 @@ public:
 		len=recv(from,buf,sizeof(buf)-1, 0);
 		if(len < 0) return -1;
 
-		std::cerr << "len = " << len << std::endl;
+		//std::cerr << "len = " << len << std::endl;
 
 		buf[len] = 0;
 		if(len>0)
@@ -154,12 +154,15 @@ public:
 	typedef std::shared_ptr<ClientType> ClientPtr;
 	std::map<int, ClientPtr> clients;
 	std::map<std::string, std::string> params;
-	fd_set rfds, afds;
+	fd_set rfds, afds, wfds, afdsw;
 
 	RbsCgi()
 	{
 		FD_ZERO(&rfds);
 		FD_ZERO(&afds);
+
+		FD_ZERO(&wfds);
+		FD_ZERO(&afdsw);
 	}
 
 	void set_query_string(std::string query_string)
@@ -199,18 +202,18 @@ public:
 				char *sip_ = (char *)params[sip].c_str();
 				int sport_ = std::atoi(params[sport].c_str());
 
-				//auto client = std::make_shared<Client<BatchExec>>(ip_, port_);
 				auto client = std::make_shared<ClientType>(sip_, sport_, ip_, port_);
 
 				// FIXME: refactory here!!
-				client->connect();
+				client->connect_noblocking();
+				//client->connect();
 				const int sockfd = client->sockfd;
 				clients[sockfd] = client;
 
 				client->set_batch(params[batch]);
 				client->id = (i - 1);
-				//client->connect_noblocking();
 
+				FD_SET(sockfd, &afdsw);
 				FD_SET(sockfd, &afds);
 			}
 		}
@@ -225,8 +228,9 @@ public:
 		while (true)
 		{
     		memcpy(&rfds, &afds, sizeof(fd_set));
+    		memcpy(&wfds, &afdsw, sizeof(fd_set));
 
-    		if(select(nfds, &rfds, NULL, NULL, NULL) < 0)
+    		if(select(nfds, &rfds, &wfds, NULL, NULL) < 0)
     		{
 				perror("select");
     		}
@@ -235,6 +239,13 @@ public:
 			{
 				const int sockfd = c.first;
 				auto client = c.second;
+
+				if (FD_ISSET(client->sockfd, &wfds))
+				{
+					std::cerr << "Write " << client->sockfd << std::endl;
+					FD_CLR(client->sockfd, &afdsw);
+					client->connect_noblocking_done();
+				}
 
 				if (FD_ISSET(client->sockfd, &rfds))
 				{
@@ -258,6 +269,7 @@ public:
 					}
 					else
 					{
+						std::cerr << "Retry!\n";
 						client->connect_noblocking();
 						if (client->is_connect_timeout())
 						{
