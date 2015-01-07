@@ -128,6 +128,7 @@ public:
 
 	void enter(int serverfd, sockaddr_in &server_addr)
 	{
+		std::cerr << "Done!!!\n";
 		this->serverfd = serverfd;
 	}
 
@@ -195,12 +196,23 @@ public:
 			std::cerr << "ip = " << params[ip] << " port = " << params[port] << " batch = " << params[batch] << "\n";
 			std::cerr << "sip = " << params[sip] << " sport = " << params[sport] << "\n";
 
-			if (params[ip] != "" && params[port] != "" && params[batch] != "" && params[sip] != "" && params[sport] != "")
+			if (params[ip] != "" && params[port] != "" && params[batch] != "")
 			{
 				char *ip_ = (char *)params[ip].c_str();
 				int port_ = std::atoi(params[port].c_str());
-				char *sip_ = (char *)params[sip].c_str();
-				int sport_ = std::atoi(params[sport].c_str());
+				char *sip_;
+				int sport_;
+
+				if (params[sip] != "" && params[sport] != "")
+				{
+					sip_ = (char *)params[sip].c_str();
+					sport_ = std::atoi(params[sport].c_str());
+				}
+				else
+				{
+					sip_ = NULL;
+					sport_ = 0;
+				}
 
 				auto client = std::make_shared<ClientType>(sip_, sport_, ip_, port_);
 
@@ -249,6 +261,7 @@ public:
 
 				if (FD_ISSET(client->sockfd, &rfds))
 				{
+					
 					if (client->is_connected())
 					{
 						client->recv_msg();
@@ -362,11 +375,11 @@ int main(int argc, char *argv[])
 
 	std::cout << "Content-Type: text/html\n\n";
 
-	RbsCgi hw3cgi;
+	RbsCgi hw4cgi;
 	
-	hw3cgi.set_query_string(getenv("QUERY_STRING"));
-	hw3cgi.establish_connection();
-	hw3cgi.main();
+	hw4cgi.set_query_string(getenv("QUERY_STRING"));
+	hw4cgi.establish_connection();
+	hw4cgi.main();
 
 	return 0;
 }

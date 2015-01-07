@@ -90,6 +90,7 @@ public:
 	Socks4Request socks4request;
 	Socks4Reply socks4reply;
 	bool is_proxy_connected_flag;
+	bool is_proxy_mode;
 
 	SocksClient(char *s_ip, int s_port, char *r_ip, int r_port)
 		: server_ip(s_ip)
@@ -97,7 +98,21 @@ public:
 		, remote_ip(r_ip)
 		, remote_port(r_port)
 		, is_proxy_connected_flag(false)
+		, is_proxy_mode(true)
 	{
+		if (s_port != 0)
+		{
+			server_ip = s_ip;
+			server_port = s_port;
+			remote_ip = r_ip;
+			remote_port = r_port;
+		}
+		else
+		{
+			is_proxy_mode = false;
+			remote_ip = r_ip;
+			remote_port = r_port;
+		}
 		
 		std::cerr << remote_port << std::endl;
 	}
@@ -128,22 +143,30 @@ public:
 	void connect_noblocking()
 	{
 		// FIXME: send / recv should be called in connect_noblocking_done()
-		sockaddr_in remote_addr;
-		hostent *remote;
-		remote = gethostbyname(remote_ip);
-		remote_addr.sin_addr = *((struct in_addr *)remote->h_addr);
 
-		Socks4Request socks4request;
-		socks4request.vn = 4;
-		socks4request.cd = 1;
-		socks4request.dst_port = (unsigned short)htons(remote_port);
-		socks4request.dst_ip = (unsigned int)remote_addr.sin_addr.s_addr;
+		if (is_proxy_mode)
+		{
+			sockaddr_in remote_addr;
+			hostent *remote;
+			remote = gethostbyname(remote_ip);
+			remote_addr.sin_addr = *((struct in_addr *)remote->h_addr);
 
-		Super::setup(server_ip, server_port);
+			Socks4Request socks4request;
+			socks4request.vn = 4;
+			socks4request.cd = 1;
+			socks4request.dst_port = (unsigned short)htons(remote_port);
+			socks4request.dst_ip = (unsigned int)remote_addr.sin_addr.s_addr;
+
+			Super::setup(server_ip, server_port);
+		}
+		else
+		{
+			Super::setup(remote_ip, remote_port);
+		}
 
 		Super::connect_noblocking();
-		ssize_t send_len = send(Super::sockfd, &socks4request, sizeof(socks4request), 0);
-		ssize_t recv_len = recv(Super::sockfd, &socks4reply, sizeof(socks4reply), 0);
+		//ssize_t send_len = send(Super::sockfd, &socks4request, sizeof(socks4request), 0);
+		//ssize_t recv_len = recv(Super::sockfd, &socks4reply, sizeof(socks4reply), 0);
 	}
 
 	void connect_noblocking_done()
@@ -158,22 +181,30 @@ public:
 		//socks4request.cd = 1;
 		//socks4request.dst_port = (unsigned short)htons(remote_port);
 		//socks4request.dst_ip = (unsigned int)remote_addr.sin_addr.s_addr;
+		
+		if (is_proxy_mode)
+		{
 
-		ssize_t send_len = send(Super::sockfd, &socks4request, sizeof(socks4request), 0);
-		ssize_t recv_len = recv(Super::sockfd, &socks4reply, sizeof(socks4reply), 0);
+			ssize_t send_len = send(Super::sockfd, &socks4request, sizeof(socks4request), 0);
+			ssize_t recv_len = recv(Super::sockfd, &socks4reply, sizeof(socks4reply), 0);
 
-		std::cerr << "send_len " << send_len << std::endl;
-		std::cerr << "recv_len " << recv_len << std::endl;
+			std::cerr << "send_len " << send_len << std::endl;
+			std::cerr << "recv_len " << recv_len << std::endl;
 
-		is_proxy_connected_flag = true;
+			is_proxy_connected_flag = true;
 
-		if (socks4request.cd = 90)
+			if (socks4request.cd = 90)
+				Super::enter(Super::sockfd, Super::server_addr);
+		}
+		else
+		{
 			Super::enter(Super::sockfd, Super::server_addr);
+		}
 	}
 
 	inline bool is_connected()
 	{
-		return is_proxy_connected_flag;
+		return is_proxy_mode ? is_proxy_connected_flag : Super::is_connected();
 	}
 };
 
