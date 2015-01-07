@@ -5,5 +5,7 @@ int main()
 {
 	ServerMultiple<SocksServerService<FirewallSocks>> socks_server;
 	socks_server.run();
+
+	return 0;
 }
 
