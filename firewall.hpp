@@ -97,8 +97,6 @@ public:
 		{
 			auto in = SimpleParser::split(input);
 
-			std::cout << in[0] << "|" << in[1] << "|" << in[2] << std::endl;
-
 			if (in[0] == "permit")
 			{
 				if (in[1] == "c") update_rule(in[2], CONNECT);

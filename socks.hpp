@@ -178,7 +178,8 @@ public:
 };
 
 
-class SocksServerService
+template <class Firewall>
+class SocksServerService : public Firewall
 {
 public:
 	sockaddr_in source_addr, destination_addr;
@@ -219,19 +220,46 @@ public:
 		Socks4Request socks4request;
 		socks4request.set(buffer, buffer_len);
 
+		struct in_addr request_dst_addr;
+		request_dst_addr.s_addr = ntohl(socks4request.dst_ip);
+		std::string ip_str(inet_ntoa(request_dst_addr));
+
+		std::cerr << "ip_str = " << ip_str << std::endl;
+
+		Firewall::add_config("socks.conf");
+
+		bool is_pass_firewall = false;
+
 		if (socks4request.cd == CONNECT)
 		{
 			std::cerr << "Do connect!\n";
-			do_connect(socks4request);
+			is_pass_firewall = Firewall::check_rule(ip_str, CONNECT);
+			if (is_pass_firewall)
+				do_connect(socks4request);
+			else
+				std::cerr << "Does NOT pass firewall!\n";
 		}
 		else if (socks4request.cd == BIND)
 		{
 			std::cerr << "Do bind!\n";
-			do_bind(socks4request);
+			is_pass_firewall = Firewall::check_rule(ip_str, BIND);
+			if (is_pass_firewall)
+				do_bind(socks4request);
+			else
+				std::cerr << "Does NOT pass firewall!\n";
 		}
 		else
 		{
 			std::cerr << "Wrong command! " << socks4request.cd << "\n";
+		}
+
+		// Send failed Socks4Reply
+		if (!is_pass_firewall)
+		{
+			Socks4Reply socks4reply;
+			socks4reply.set_ip(socks4request.dst_ip);
+			socks4reply.set_port(socks4request.dst_port);
+			send(source_fd, &socks4reply, sizeof(socks4reply), 0);
 		}
 
 		print_ip(destination_addr.sin_addr);
