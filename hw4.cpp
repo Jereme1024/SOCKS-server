@@ -87,7 +87,7 @@ public:
 				is_exit_flag = 1;
 			}
 
-			sleep(1);
+			usleep(100);
 		}
 	}
 
@@ -101,7 +101,7 @@ public:
 	{
 		remove_return_symbol(plaintext);
 
-		std::cerr << "PH: " << plaintext << std::endl;
+		//std::cerr << "Plaintext: " << plaintext << std::endl;
 
 		std::cout << "<script>document.all['m" << id <<"'].innerHTML += \"";
 		if (is_border) std::cout << "<b>";
@@ -128,7 +128,6 @@ public:
 
 	void enter(int serverfd, sockaddr_in &server_addr)
 	{
-		std::cerr << "Done!!!\n";
 		this->serverfd = serverfd;
 	}
 
@@ -254,14 +253,12 @@ public:
 
 				if (FD_ISSET(client->sockfd, &wfds))
 				{
-					std::cerr << "Write " << client->sockfd << std::endl;
-					FD_CLR(client->sockfd, &afdsw);
-					client->connect_noblocking_done();
+					if (client->connect_noblocking_done())
+						FD_CLR(client->sockfd, &afdsw);
 				}
 
 				if (FD_ISSET(client->sockfd, &rfds))
 				{
-					
 					if (client->is_connected())
 					{
 						client->recv_msg();
@@ -309,7 +306,6 @@ public:
 
 	inline bool is_finish()
 	{
-		//std::cerr << "SZ: " << clients.size() << "\n";
 		return (clients.size() == 0);
 	}
 

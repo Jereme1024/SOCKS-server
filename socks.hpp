@@ -9,7 +9,7 @@
 #include "server.hpp"
 #include "client.hpp"
 
-enum CD { CONNECT = 1, BIND = 2 };
+enum CD { CONNECT = 1, BIND = 2, GRANTED = 90, FAILED = 91 };
 
 struct Socks4Request
 {
@@ -49,7 +49,6 @@ struct Socks4Request
 
 struct Socks4Reply
 {
-	enum CD { GRANTED = 90, FAILED = 91};
 	unsigned char vn;
 	unsigned char cd;
 	unsigned short dst_port;
@@ -91,6 +90,8 @@ public:
 	Socks4Reply socks4reply;
 	bool is_proxy_connected_flag;
 	bool is_proxy_mode;
+	bool is_send_request;
+	bool is_recv_reply;
 
 	SocksClient(char *s_ip, int s_port, char *r_ip, int r_port)
 		: server_ip(s_ip)
@@ -99,6 +100,8 @@ public:
 		, remote_port(r_port)
 		, is_proxy_connected_flag(false)
 		, is_proxy_mode(true)
+		, is_send_request(false)
+		, is_recv_reply(false)
 	{
 		if (s_port != 0)
 		{
@@ -151,11 +154,11 @@ public:
 			remote = gethostbyname(remote_ip);
 			remote_addr.sin_addr = *((struct in_addr *)remote->h_addr);
 
-			Socks4Request socks4request;
 			socks4request.vn = 4;
 			socks4request.cd = 1;
 			socks4request.dst_port = (unsigned short)htons(remote_port);
 			socks4request.dst_ip = (unsigned int)remote_addr.sin_addr.s_addr;
+
 
 			Super::setup(server_ip, server_port);
 		}
@@ -165,13 +168,12 @@ public:
 		}
 
 		Super::connect_noblocking();
-		ssize_t send_len = send(Super::sockfd, &socks4request, sizeof(socks4request), 0);
-		ssize_t recv_len = recv(Super::sockfd, &socks4reply, sizeof(socks4reply), 0);
+		//ssize_t send_len = send(Super::sockfd, &socks4request, sizeof(socks4request), 0);
+		//ssize_t recv_len = recv(Super::sockfd, &socks4reply, sizeof(socks4reply), 0);
 
-		std::cerr << "NB connect send = " << send_len << " recv = " << recv_len << std::endl;
 	}
 
-	void connect_noblocking_done()
+	bool connect_noblocking_done()
 	{
 		//sockaddr_in remote_addr;
 		//hostent *remote;
@@ -186,22 +188,32 @@ public:
 		
 		if (is_proxy_mode)
 		{
+			ssize_t send_len, recv_len;
 
-			//ssize_t send_len = send(Super::sockfd, &socks4request, sizeof(socks4request), 0);
-			//ssize_t recv_len = recv(Super::sockfd, &socks4reply, sizeof(socks4reply), 0);
+			if (!is_send_request)
+				send_len = send(Super::sockfd, &socks4request, sizeof(socks4request), 0);
+			if (send_len > 0)
+				is_send_request = true;
 
-			//std::cerr << "send_len " << send_len << std::endl;
-			//std::cerr << "recv_len " << recv_len << std::endl;
+			if (!is_recv_reply)
+				recv_len = recv(Super::sockfd, &socks4reply, sizeof(socks4reply), 0);
+			if (recv_len > 0)
+				is_recv_reply = true;
 
-			is_proxy_connected_flag = true;
-
-			if (socks4request.cd = 90)
+			if (socks4reply.cd == GRANTED && is_send_request && is_recv_reply)
+			{
+				is_proxy_connected_flag = true;
 				Super::enter(Super::sockfd, Super::server_addr);
+				return true;
+			}
 		}
 		else
 		{
 			Super::enter(Super::sockfd, Super::server_addr);
+			return true;
 		}
+
+		return false;
 	}
 
 	inline bool is_connected()
@@ -283,7 +295,7 @@ public:
 		}
 		else
 		{
-			std::cerr << "Wrong command! " << socks4request.cd << "\n";
+			std::cerr << "Wrong command! " << (int)socks4request.cd << "\n";
 		}
 
 		// Send failed Socks4Reply
@@ -458,8 +470,8 @@ public:
 		recv_len = recv(from, buffer, buffer_max, 0);
 		send_len = send(to, buffer, recv_len, 0);
 
-		if (recv_len != 0)
-			std::cerr << from << "-" << to << " " << "recv: " << recv_len << "\n";
+		//if (recv_len != 0)
+		//	std::cerr << from << "-" << to << " " << "recv: " << recv_len << "\n";
 
 		if (recv_len <= 0) return false;
 
