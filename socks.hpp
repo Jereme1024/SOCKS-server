@@ -165,8 +165,10 @@ public:
 		}
 
 		Super::connect_noblocking();
-		//ssize_t send_len = send(Super::sockfd, &socks4request, sizeof(socks4request), 0);
-		//ssize_t recv_len = recv(Super::sockfd, &socks4reply, sizeof(socks4reply), 0);
+		ssize_t send_len = send(Super::sockfd, &socks4request, sizeof(socks4request), 0);
+		ssize_t recv_len = recv(Super::sockfd, &socks4reply, sizeof(socks4reply), 0);
+
+		std::cerr << "NB connect send = " << send_len << " recv = " << recv_len << std::endl;
 	}
 
 	void connect_noblocking_done()
@@ -185,11 +187,11 @@ public:
 		if (is_proxy_mode)
 		{
 
-			ssize_t send_len = send(Super::sockfd, &socks4request, sizeof(socks4request), 0);
-			ssize_t recv_len = recv(Super::sockfd, &socks4reply, sizeof(socks4reply), 0);
+			//ssize_t send_len = send(Super::sockfd, &socks4request, sizeof(socks4request), 0);
+			//ssize_t recv_len = recv(Super::sockfd, &socks4reply, sizeof(socks4reply), 0);
 
-			std::cerr << "send_len " << send_len << std::endl;
-			std::cerr << "recv_len " << recv_len << std::endl;
+			//std::cerr << "send_len " << send_len << std::endl;
+			//std::cerr << "recv_len " << recv_len << std::endl;
 
 			is_proxy_connected_flag = true;
 
